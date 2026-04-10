@@ -27,6 +27,7 @@ import type { Piece } from "chessops";
 import { makeUci, parseUci } from "chessops";
 import { INITIAL_FEN } from "chessops/fen";
 import { getDefaultStore, useAtom, useAtomValue } from "jotai";
+import { useNavigate } from "@tanstack/react-router";
 import { useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { mutate } from "swr";
 import { useTranslation } from "react-i18next";
@@ -57,6 +58,17 @@ import {
   gameSameTimeControlAtom,
   tabsAtom,
 } from "@/state/atoms";
+import {
+  tournamentActiveContextAtom,
+  tournamentLaunchPayloadAtom,
+  tournamentModalAtom,
+  tournamentOneShotEventTitleAtom,
+} from "@/state/tournamentAtoms";
+import { allMatchesPlayed, boardOutcomeToScheduleResult } from "@/utils/tournament";
+import {
+  formatStandingsMessage,
+  persistHumanMatchResult,
+} from "@/utils/tournamentStorage";
 import { positionFromFen } from "@/utils/chessops";
 import type { GameHeaders } from "@/utils/treeReducer";
 import { unwrap } from "@/utils/unwrap";
@@ -116,6 +128,9 @@ function mapBackendMoves(moves: { uci: string; clock: bigint | null }[]): Backen
 
 function BoardGame() {
   const { t } = useTranslation();
+  const navigate = useNavigate();
+  const navigateRef = useRef(navigate);
+  navigateRef.current = navigate;
   const activeTab = useAtomValue(activeTabAtom);
 
   const [editingMode, toggleEditingMode] = useToggle();
@@ -134,19 +149,6 @@ function BoardGame() {
 
   const [player1Settings, setPlayer1Settings] = useAtom(gamePlayer1SettingsAtom);
   const [player2Settings, setPlayer2Settings] = useAtom(gamePlayer2SettingsAtom);
-
-  function getPlayers() {
-    let isPlayer1White = inputColor === "white";
-
-    if (inputColor === "random") {
-      isPlayer1White = Math.random() > 0.5;
-    }
-
-    return {
-      white: isPlayer1White ? player1Settings : player2Settings,
-      black: isPlayer1White ? player2Settings : player1Settings,
-    };
-  }
 
   const store = useContext(TreeStateContext)!;
   const root = useStore(store, (s) => s.root);
@@ -285,7 +287,7 @@ function BoardGame() {
 
     const strengthOpts: EngineOption[] = [];
     if (settings.limitStrength) {
-      const elo = Math.min(3200, Math.max(500, Math.round(settings.limitElo ?? 1500)));
+      const elo = Math.min(5000, Math.max(500, Math.round(settings.limitElo ?? 1500)));
       strengthOpts.push(
         { name: "UCI_LimitStrength", value: "true" },
         { name: "UCI_Elo", value: String(elo) },
@@ -315,8 +317,21 @@ function BoardGame() {
     return moves;
   }, [root]);
 
+  const startGameRef = useRef<() => Promise<void>>(async () => {});
+
   async function startGame() {
-    const playerSettings = getPlayers();
+    const store = getDefaultStore();
+    const p1 = store.get(gamePlayer1SettingsAtom);
+    const p2 = store.get(gamePlayer2SettingsAtom);
+    const ic = store.get(gameInputColorAtom);
+    let isPlayer1White = ic === "white";
+    if (ic === "random") {
+      isPlayer1White = Math.random() > 0.5;
+    }
+    const playerSettings = {
+      white: isPlayer1White ? p1 : p2,
+      black: isPlayer1White ? p2 : p1,
+    };
     setPlayers(playerSettings);
 
     const boardOrientation =
@@ -378,13 +393,19 @@ function BoardGame() {
 
       const whiteIsEngine = playerSettings.white.type === "engine";
       const blackIsEngine = playerSettings.black.type === "engine";
-      let eventStr = "Casual Game";
-      if (whiteIsEngine && blackIsEngine) {
-        eventStr = "Engine Match";
-      } else if (whiteIsEngine || blackIsEngine) {
-        eventStr = "Player vs Engine";
-      } else {
-        eventStr = "Player Match";
+      const oneShotEvent = getDefaultStore().get(tournamentOneShotEventTitleAtom);
+      if (oneShotEvent) {
+        getDefaultStore().set(tournamentOneShotEventTitleAtom, null);
+      }
+      let eventStr = oneShotEvent ?? "Casual Game";
+      if (!oneShotEvent) {
+        if (whiteIsEngine && blackIsEngine) {
+          eventStr = "Engine Match";
+        } else if (whiteIsEngine || blackIsEngine) {
+          eventStr = "Player vs Engine";
+        } else {
+          eventStr = "Player Match";
+        }
       }
 
       const formatTimeControl = (settings: OpponentSettings): string => {
@@ -421,7 +442,7 @@ function BoardGame() {
       if (whiteIsEngine && playerSettings.white.type === "engine") {
         if (playerSettings.white.limitStrength) {
           newHeaders.white_elo = Math.min(
-            3200,
+            5000,
             Math.max(500, Math.round(playerSettings.white.limitElo ?? 1500)),
           );
         }
@@ -429,7 +450,7 @@ function BoardGame() {
       if (blackIsEngine && playerSettings.black.type === "engine") {
         if (playerSettings.black.limitStrength) {
           newHeaders.black_elo = Math.min(
-            3200,
+            5000,
             Math.max(500, Math.round(playerSettings.black.limitElo ?? 1500)),
           );
         }
@@ -480,9 +501,58 @@ function BoardGame() {
         ),
       );
     } catch (err) {
+      getDefaultStore().set(tournamentOneShotEventTitleAtom, null);
       console.error("Failed to start game:", err);
     }
   }
+
+  startGameRef.current = () => startGame();
+
+  const [tournamentLaunch, setTournamentLaunchHandled] = useAtom(tournamentLaunchPayloadAtom);
+
+  useEffect(() => {
+    if (!tournamentLaunch) return;
+    const p = tournamentLaunch;
+    setTournamentLaunchHandled(null);
+
+    if (activeTab) {
+      void commands.abortGame(`${activeTab}-game`);
+    }
+    gameEndNotifiedForGameIdRef.current = null;
+    setGameId(null);
+    setGameState("settingUp");
+    setWhiteTime(null);
+    setBlackTime(null);
+    resetTree();
+
+    const jotai = getDefaultStore();
+    jotai.set(gamePlayer1SettingsAtom, p.player1);
+    jotai.set(gamePlayer2SettingsAtom, p.player2);
+    jotai.set(gameInputColorAtom, p.inputColor);
+    jotai.set(tournamentOneShotEventTitleAtom, `Tournament: ${p.eventName}`);
+    jotai.set(tournamentActiveContextAtom, {
+      tournamentId: p.tournamentId,
+      matchIndex: p.matchIndex,
+      resultMappingSwapped: p.resultMappingSwapped,
+    });
+    setPlayer1Settings(p.player1);
+    setPlayer2Settings(p.player2);
+    setInputColor(p.inputColor);
+
+    window.setTimeout(() => {
+      void startGameRef.current();
+    }, 0);
+  }, [
+    tournamentLaunch,
+    setTournamentLaunchHandled,
+    setPlayer1Settings,
+    setPlayer2Settings,
+    setInputColor,
+    activeTab,
+    resetTree,
+    setGameId,
+    setGameState,
+  ]);
 
   const handleHumanMove = useCallback(
     async (uci: string) => {
@@ -574,6 +644,36 @@ function BoardGame() {
       setGameState("gameOver");
       setResult(outcome);
 
+      const tctx = getDefaultStore().get(tournamentActiveContextAtom);
+      const tournamentOutcomeOk =
+        outcome === "1-0" || outcome === "0-1" || outcome === "1/2-1/2";
+      const suppressGameEndToast = !!tctx && tournamentOutcomeOk;
+
+      if (tctx) {
+        if (tournamentOutcomeOk) {
+          const scheduleOutcome = boardOutcomeToScheduleResult(outcome, tctx.resultMappingSwapped);
+          getDefaultStore().set(tournamentActiveContextAtom, null);
+          void persistHumanMatchResult(tctx.tournamentId, tctx.matchIndex, scheduleOutcome)
+            .then((updated) => {
+              const done = allMatchesPlayed(updated);
+              const standings = formatStandingsMessage(updated);
+              getDefaultStore().set(tournamentModalAtom, {
+                title: done ? t("Tournament.CompleteTitle") : t("Tournament.GameOverTitle"),
+                message: done
+                  ? `${t("Tournament.FinalStandings")}\n\n${standings}`
+                  : `${t("Tournament.StandingsUpdate")}\n\n${standings}`,
+                kind: done ? "tournament_complete" : "game_over",
+              });
+              navigateRef.current({ to: "/tournaments" });
+            })
+            .catch((err) => {
+              console.error(err);
+            });
+        } else {
+          getDefaultStore().set(tournamentActiveContextAtom, null);
+        }
+      }
+
       const playersNow = getDefaultStore().get(currentPlayersAtom);
       const pve =
         (playersNow.white.type === "human" && playersNow.black.type === "engine") ||
@@ -589,7 +689,7 @@ function BoardGame() {
 
       const showSavedHint = pvp || (pve && usernameIfPve.length > 0);
 
-      if (gameEndNotifiedForGameIdRef.current !== currentGameId) {
+      if (!suppressGameEndToast && gameEndNotifiedForGameIdRef.current !== currentGameId) {
         gameEndNotifiedForGameIdRef.current = currentGameId;
         const { title, message } = buildGameOverNotificationCopy(payload.result, t, showSavedHint);
         notifications.show({ title, message, autoClose: 9000 });
@@ -633,7 +733,7 @@ function BoardGame() {
             : formatTc(playersNow.black);
 
         const opponentElo = engineSide.limitStrength
-          ? Math.min(3200, Math.max(500, Math.round(engineSide.limitElo ?? 1500)))
+          ? Math.min(5000, Math.max(500, Math.round(engineSide.limitElo ?? 1500)))
           : null;
 
         void commands
@@ -785,6 +885,7 @@ function BoardGame() {
   }
 
   async function handleNewGame() {
+    getDefaultStore().set(tournamentActiveContextAtom, null);
     gameEndNotifiedForGameIdRef.current = null;
     setGameId(null);
     setGameState("settingUp");

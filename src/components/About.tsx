@@ -31,6 +31,7 @@ function AboutModal({
   }, []);
   return (
     <Modal centered opened={opened} onClose={() => setOpened(false)} title="En Croissant">
+      <Text>Built by Werner Kruger</Text>
       <Text>Version: {info?.version}</Text>
       <Text>Tauri version: {info?.tauri}</Text>
       <Text>
@@ -39,9 +40,6 @@ function AboutModal({
 
       <br />
 
-      <Anchor href="https://www.encroissant.org" target="_blank" rel="noreferrer">
-        www.encroissant.org
-      </Anchor>
     </Modal>
   );
 }

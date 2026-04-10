@@ -7,6 +7,7 @@ import {
   IconDatabase,
   IconFiles,
   IconSettings,
+  IconTrophy,
   IconUser,
 } from "@tabler/icons-react";
 import { Link, useMatchRoute } from "@tanstack/react-router";
@@ -39,6 +40,7 @@ function NavbarLink({ url, icon: Icon, label }: NavbarLinkProps) {
 
 const linksdata = [
   { icon: IconChess, label: "Board", url: "/" },
+  { icon: IconTrophy, label: "Tournament", url: "/tournaments" },
   { icon: IconUser, label: "User", url: "/accounts" },
   { icon: IconFiles, label: "Files", url: "/files" },
   {
