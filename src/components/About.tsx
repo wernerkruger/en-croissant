@@ -30,7 +30,7 @@ function AboutModal({
     load();
   }, []);
   return (
-    <Modal centered opened={opened} onClose={() => setOpened(false)} title="En Croissant">
+    <Modal centered opened={opened} onClose={() => setOpened(false)} title="WK Chesser">
       <Text>Built by Werner Kruger</Text>
       <Text>Version: {info?.version}</Text>
       <Text>Tauri version: {info?.tauri}</Text>

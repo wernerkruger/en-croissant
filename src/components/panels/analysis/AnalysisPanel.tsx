@@ -42,6 +42,7 @@ import { getInitials } from "@/utils/format";
 import BestMoves, { arrowColors } from "./BestMoves";
 import EngineSelection from "./EngineSelection";
 import LogsPanel from "./LogsPanel";
+import GameReviewSection from "./GameReviewSection";
 import ReportPanel from "./ReportPanel";
 import ScoreBubble from "./ScoreBubble";
 import TablebaseInfo from "./TablebaseInfo";
@@ -242,6 +243,7 @@ function AnalysisPanel() {
                   </Popover.Dropdown>
                 </Popover>
               </Group>
+              <GameReviewSection />
             </Stack>
           </ScrollArea>
         </Tabs.Panel>

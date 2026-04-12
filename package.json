@@ -1,6 +1,6 @@
 {
-  "name": "en-croissant",
-  "version": "0.17.0",
+  "name": "wk-chesser",
+  "version": "0.17.1",
   "private": true,
   "type": "module",
   "scripts": {

@@ -29,6 +29,30 @@ async analyzeGame(id: string, engine: string, goMode: GoMode, options: AnalysisO
     else return { status: "error", error: e  as any };
 }
 },
+async saveGameMoveReview(args: SaveGameMoveReviewArgs) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("save_game_move_review", { args }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async loadGameMoveReview(args: LoadGameMoveReviewArgs) : Promise<Result<string | null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("load_game_move_review", { args }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async appendGameReviewBuildLog(args: AppendGameReviewBuildLogArgs) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("append_game_review_build_log", { args }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 async cancelAnalysis(id: string) : Promise<Result<null, string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("cancel_analysis", { id }) };
@@ -619,6 +643,8 @@ export type GameSort = "id" | "date" | "whiteElo" | "blackElo" | "ply_count"
 export type GameState = { gameId: string; status: GameStatus; initialFen: string; moves: GameMove[]; currentFen: string; ply: number; turn: string; whiteTime: bigint | null; blackTime: bigint | null; whitePlayer: string; blackPlayer: string }
 export type GameStatus = "playing" | { finished: { result: GameResult } }
 export type GetEncDisplayRatingArgs = { username: string; timeControl: string }
+export type AppendGameReviewBuildLogArgs = { payload: string }
+export type LoadGameMoveReviewArgs = { gameKey: string }
 export type GoMode = { t: "PlayersTime"; c: PlayersTime } | { t: "Depth"; c: number } | { t: "Time"; c: number } | { t: "Nodes"; c: number } | { t: "Infinite" }
 export type MoveAnalysis = { best: BestMoves[]; novelty: boolean; is_sacrifice: boolean }
 export type NormalizedGame = { id: number; fen: string; event: string; event_id: number; site: string; site_id: number; date?: string | null; time?: string | null; round?: string | null; white: string; white_id: number; white_elo?: number | null; black: string; black_id: number; black_elo?: number | null; result: Outcome; time_control?: string | null; eco?: string | null; ply_count?: number | null; moves: string }
@@ -644,6 +670,7 @@ export type PuzzleDatabaseInfo = { title: string; description: string; puzzleCou
 export type QueryOptions<SortT> = { skipCount: boolean; page?: number | null; pageSize?: number | null; sort: SortT; direction: SortDirection }
 export type QueryResponse<T> = { data: T; count: number | null }
 export type RecordEncroissantEngineGameArgs = { username: string; humanIsWhite: boolean; outcome: string; opponentElo: number | null; limitStrength: boolean; timeControl: string; movesUci: string[]; date: string }
+export type SaveGameMoveReviewArgs = { gameKey: string; payload: string }
 export type RecordEncroissantHumanGameArgs = { whiteName: string; blackName: string; result: GameResult; whiteTimeControl: string; blackTimeControl: string; movesUci: string[]; date: string }
 export type Score = { value: ScoreValue; 
 /**

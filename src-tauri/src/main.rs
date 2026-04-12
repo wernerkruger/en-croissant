@@ -10,6 +10,7 @@ mod enc_local_db;
 mod engine_games;
 mod error;
 mod game;
+mod game_review;
 
 mod fs;
 mod lexer;
@@ -56,6 +57,9 @@ use crate::engine_games::{
 use crate::game::{
     abort_game, get_game_engine_logs, get_game_state, make_game_move, resign_game, start_game,
     take_back_game_move, ClockUpdateEvent, GameMoveEvent, GameOverEvent,
+};
+use crate::game_review::{
+    append_game_review_build_log, load_game_move_review, save_game_move_review,
 };
 
 use crate::fs::set_file_as_executable;
@@ -121,6 +125,9 @@ fn main() {
             close_splashscreen,
             get_best_moves,
             analyze_game,
+            save_game_move_review,
+            load_game_move_review,
+            append_game_review_build_log,
             cancel_analysis,
             stop_engine,
             kill_engine,

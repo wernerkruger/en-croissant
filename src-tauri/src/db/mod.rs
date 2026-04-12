@@ -54,7 +54,9 @@ use tauri_specta::Event as _;
 use self::encoding::{
     encode_comment, encode_move, encode_nag, VARIATION_END_MARKER, VARIATION_START_MARKER,
 };
-pub use self::search_index::{get_index_path, MmapSearchIndex, SearchGameEntry, SearchIndex};
+pub use self::search_index::{
+    get_index_path, GameResult, MmapSearchIndex, SearchGameEntry, SearchIndex,
+};
 
 pub use self::models::NormalizedGame;
 pub use self::models::Outcome;
@@ -63,7 +65,12 @@ pub use self::models::Puzzle;
 pub use self::schema::puzzle_themes;
 pub use self::schema::puzzles;
 pub use self::schema::themes;
-pub use self::search::{is_position_in_db, search_position, PositionQueryJs, PositionStats};
+pub(crate) use self::search::{
+    convert_position_query, get_move_after_match_uci, ProgressPayload,
+};
+pub use self::search::{
+    is_position_in_db, search_position, PositionQuery, PositionQueryJs, PositionStats,
+};
 pub use self::twic::sync_twic_database;
 
 const DATABASE_VERSION: &str = "1.0.0";

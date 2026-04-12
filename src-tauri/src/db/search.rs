@@ -88,7 +88,7 @@ pub struct PositionQueryJs {
     pub type_: String,
 }
 
-fn convert_position_query(query: PositionQueryJs) -> Result<PositionQuery, Error> {
+pub(crate) fn convert_position_query(query: PositionQueryJs) -> Result<PositionQuery, Error> {
     match query.type_.as_str() {
         "exact" => PositionQuery::exact_from_fen(&query.fen),
         "partial" => PositionQuery::partial_from_fen(&query.fen),
@@ -226,8 +226,51 @@ fn get_move_after_match(
     Ok(None)
 }
 
+/// Same semantics as [`get_move_after_match`], but for a UCI main line (En Croissant local games DB).
+pub(crate) fn get_move_after_match_uci(uci_moves: &[String], query: &PositionQuery) -> Option<String> {
+    let mut chess = Chess::default();
+
+    if query.matches(&chess) {
+        if uci_moves.is_empty() {
+            return Some("*".to_string());
+        }
+        let u = shakmaty::uci::UciMove::from_ascii(uci_moves[0].as_bytes()).ok()?;
+        let m = u.to_move(&chess).ok()?;
+        let san = SanPlus::from_move(chess, &m);
+        return Some(san.to_string());
+    }
+
+    let mut i = 0usize;
+    while i < uci_moves.len() {
+        let u = shakmaty::uci::UciMove::from_ascii(uci_moves[i].as_bytes()).ok()?;
+        let m = u.to_move(&chess).ok()?;
+        chess.play_unchecked(&m);
+        i += 1;
+
+        let is_irreversible =
+            m.is_capture() || m.role() == shakmaty::Role::Pawn || m.is_promotion();
+
+        if is_irreversible {
+            let board = chess.board();
+            if !query.is_reachable_by(&get_material_count(board), get_pawn_home(board)) {
+                return None;
+            }
+        }
+        if query.matches(&chess) {
+            if i >= uci_moves.len() {
+                return Some("*".to_string());
+            }
+            let u2 = shakmaty::uci::UciMove::from_ascii(uci_moves[i].as_bytes()).ok()?;
+            let m2 = u2.to_move(&chess).ok()?;
+            let san = SanPlus::from_move(chess.clone(), &m2);
+            return Some(san.to_string());
+        }
+    }
+    None
+}
+
 #[derive(Clone, serde::Serialize)]
-pub struct ProgressPayload {
+pub(crate) struct ProgressPayload {
     pub progress: f64,
     pub id: String,
     pub finished: bool,
@@ -301,8 +344,7 @@ pub async fn search_position(
     state: tauri::State<'_, AppState>,
 ) -> Result<(Vec<PositionStats>, Vec<NormalizedGame>), Error> {
     if crate::enc_local_db::is_enc_local_sentinel(&file) {
-        let _ = (app, tab_id);
-        return Ok((vec![], vec![]));
+        return crate::enc_local_db::search_position_enc_local(app, query, tab_id, state).await;
     }
     let db = &mut get_db_or_create(&state, file.to_str().unwrap(), ConnectionOptions::default())?;
 

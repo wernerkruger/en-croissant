@@ -22,9 +22,10 @@ import { match } from "ts-pattern";
 import { useStore } from "zustand";
 import { useShallow } from "zustand/react/shallow";
 import { Chessground, type ChessgroundRef } from "@/chessground/Chessground";
+import { gameReviewDataFamily } from "@/state/gameReviewAtoms";
 import {
-  autoPromoteAtom,
-  bestMovesFamily,
+    autoPromoteAtom,
+    bestMovesFamily,
   currentEvalOpenAtom,
   currentShowCommentsAtom,
   currentTabAtom,
@@ -56,6 +57,7 @@ import { TreeStateContext } from "../common/TreeStateContext";
 import FideInfo from "../databases/FideInfo";
 import { updateCardPerformance } from "../files/opening";
 import { arrowColors } from "../panels/analysis/BestMoves";
+import GameReviewHint from "./GameReviewHint";
 import AnnotationHint from "./AnnotationHint";
 import { BoardBar } from "./BoardBar";
 import Clock from "./Clock";
@@ -174,6 +176,7 @@ function Board({
   }, [clearShapes, boardRef]);
 
   const currentTab = useAtomValue(currentTabAtom);
+  const gameReviewData = useAtomValue(gameReviewDataFamily(currentTab?.value ?? ""));
   const tabFile = getTabFile(currentTab);
   const [evalOpen, setEvalOpen] = useAtom(currentEvalOpenAtom);
 
@@ -362,6 +365,9 @@ function Board({
   const showComments = useAtomValue(currentShowCommentsAtom);
   const visualAnnotation = showComments ? currentNode.annotations[0] : "";
 
+  const reviewEntry =
+    gameReviewData?.entries.find((e) => e.halfMoves === currentNode.halfMoves) ?? null;
+
   const setBoardFen = useCallback(
     (fen: string) => {
       if (!fen || !editingMode) {
@@ -442,19 +448,36 @@ function Board({
             gap="sm"
           >
             {showComments &&
-              currentNode.annotations.length > 0 &&
               currentNode.move &&
-              square !== undefined && (
+              square !== undefined &&
+              (reviewEntry ? (
                 <Box pl="2.5rem" w="100%" h="100%" pos="absolute">
                   <Box pos="relative" w="100%" h="100%">
-                    <AnnotationHint
+                    <GameReviewHint
                       orientation={orientation}
                       square={square}
-                      annotation={currentNode.annotations[0]}
+                      kind={reviewEntry.kind}
+                      title={
+                        reviewEntry.openingName
+                          ? `${t(`Board.Analysis.ReviewKind.${reviewEntry.kind}`)} — ${[reviewEntry.openingEco, reviewEntry.openingName].filter(Boolean).join(" ")}`
+                          : t(`Board.Analysis.ReviewKind.${reviewEntry.kind}`)
+                      }
                     />
                   </Box>
                 </Box>
-              )}
+              ) : (
+                currentNode.annotations.length > 0 && (
+                  <Box pl="2.5rem" w="100%" h="100%" pos="absolute">
+                    <Box pos="relative" w="100%" h="100%">
+                      <AnnotationHint
+                        orientation={orientation}
+                        square={square}
+                        annotation={currentNode.annotations[0]}
+                      />
+                    </Box>
+                  </Box>
+                )
+              ))}
             <Box
               h="100%"
               style={{
