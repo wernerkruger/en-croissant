@@ -47,6 +47,8 @@ import ConfirmModal from "../common/ConfirmModal";
 import GenericCard from "../common/GenericCard";
 import OpenFolderButton from "../common/OpenFolderButton";
 import AddDatabase from "./AddDatabase";
+import { ChessComStyleBots } from "./ChessComStyleBots";
+import { NameManagement } from "./NameManagement";
 import { PlayerSearchInput } from "./PlayerSearchInput";
 
 export default function DatabasesPage() {
@@ -417,7 +419,13 @@ export default function DatabasesPage() {
 
                 {selectedDatabase.type === "success" &&
                   !isEncLocalPlayedGamesDb(selectedDatabase.file) && (
-                    <AdvancedSettings selectedDatabase={selectedDatabase} reload={mutate} />
+                    <>
+                      <AdvancedSettings selectedDatabase={selectedDatabase} reload={mutate} />
+                      <Divider variant="dashed" label={t("Databases.NameManagement.Title")} />
+                      <NameManagement file={selectedDatabase.file} />
+                      <Divider variant="dashed" label={t("Databases.ChessComBots.Title")} />
+                      <ChessComStyleBots />
+                    </>
                   )}
 
                 <Divider variant="dashed" label={t("Databases.Settings.Actions")} />

@@ -2,14 +2,12 @@ import {
   Alert,
   Button,
   Group,
-  Modal,
   ScrollArea,
   SegmentedControl,
   Select,
   Stack,
   Tabs,
   Text,
-  TextInput,
 } from "@mantine/core";
 import { useDebouncedValue, useDisclosure } from "@mantine/hooks";
 import { IconDatabaseExport } from "@tabler/icons-react";
@@ -17,9 +15,6 @@ import { Link } from "@tanstack/react-router";
 import { useAtom, useAtomValue } from "jotai";
 import { memo, useContext, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { notifications } from "@mantine/notifications";
-import { resolve } from "@tauri-apps/api/path";
-import { exists } from "@tauri-apps/plugin-fs";
 import useSWR from "swr/immutable";
 import { match } from "ts-pattern";
 import { useStore } from "zustand";
@@ -41,7 +36,7 @@ import {
   type Opening,
   searchPosition,
 } from "@/utils/db";
-import { getDatabasesDir } from "@/utils/directories";
+import { ExportFilteredGamesModal } from "@/components/databases/ExportFilteredGamesModal";
 import { formatNumber } from "@/utils/format";
 import { convertToNormalized, getLichessGames, getMasterGames } from "@/utils/lichess/api";
 import type { LichessGamesOptions, MasterGamesOptions } from "@/utils/lichess/explorer";
@@ -83,13 +78,6 @@ export type LocalOptions = {
 
 function sortOpenings(openings: Opening[]) {
   return openings.sort((a, b) => b.black + b.draw + b.white - (a.black + a.draw + a.white));
-}
-
-function sanitizeDatabaseFilename(name: string): string {
-  const trimmed = name.trim().replace(/\.db3$/i, "");
-  if (!trimmed) return "filtered-games";
-  const safe = trimmed.replace(/[^a-zA-Z0-9._-]+/g, "_").slice(0, 120);
-  return safe || "filtered-games";
 }
 
 /** Same `GameQuery` shape as `searchPosition` for local databases (board filters). */
@@ -203,54 +191,7 @@ function DatabasePanel() {
   const [tabType, setTabType] = useAtom(currentDbTabAtom);
 
   const [exportModalOpen, exportModalHandlers] = useDisclosure(false);
-  const [exportName, setExportName] = useState("");
   const [exportLoading, setExportLoading] = useState(false);
-
-  async function onConfirmBoardExport() {
-    const title = exportName.trim();
-    if (!title) {
-      notifications.show({
-        color: "red",
-        title: t("Common.Error"),
-        message: t("Databases.Game.ExportNameRequired"),
-      });
-      return;
-    }
-    if (!referenceDatabase) {
-      return;
-    }
-    setExportLoading(true);
-    try {
-      const base = sanitizeDatabaseFilename(title);
-      const dir = await getDatabasesDir();
-      const destPath = await resolve(dir, `${base}.db3`);
-      if (await exists(destPath)) {
-        notifications.show({
-          color: "red",
-          title: t("Common.Error"),
-          message: t("Databases.Game.ExportFileExists"),
-        });
-        return;
-      }
-      const q = buildBoardLocalExportQuery({ ...localOptions, path: referenceDatabase });
-      const n = await export_board_filtered_games(referenceDatabase, q, destPath, title);
-      notifications.show({
-        color: "green",
-        title: t("Databases.Game.ExportSuccessTitle"),
-        message: t("Databases.Game.ExportSuccessMessage", { count: n }),
-      });
-      exportModalHandlers.close();
-      setExportName("");
-    } catch (e) {
-      notifications.show({
-        color: "red",
-        title: t("Common.Error"),
-        message: e instanceof Error ? e.message : String(e),
-      });
-    } finally {
-      setExportLoading(false);
-    }
-  }
 
   const {
     data: openingData,
@@ -305,10 +246,7 @@ function DatabasePanel() {
               size="compact-sm"
               variant="light"
               leftSection={<IconDatabaseExport size={14} />}
-              onClick={() => {
-                setExportName("");
-                exportModalHandlers.open();
-              }}
+              onClick={() => exportModalHandlers.open()}
             >
               {t("Databases.Game.ExportFiltered")}
             </Button>
@@ -328,29 +266,32 @@ function DatabasePanel() {
 
   return (
     <>
-      <Modal
-        opened={exportModalOpen}
-        onClose={exportModalHandlers.close}
-        title={t("Databases.Game.ExportModalTitle")}
-      >
-        <Stack>
-          <TextInput
-            label={t("Databases.Game.ExportNameLabel")}
-            placeholder={t("Databases.Game.ExportNamePlaceholder")}
-            value={exportName}
-            onChange={(e) => setExportName(e.currentTarget.value)}
-            autoFocus
-          />
-          <Group justify="flex-end" mt="md">
-            <Button variant="default" onClick={exportModalHandlers.close}>
-              {t("Common.Cancel")}
-            </Button>
-            <Button loading={exportLoading} onClick={() => void onConfirmBoardExport()}>
-              {t("Databases.Game.ExportConfirm")}
-            </Button>
-          </Group>
-        </Stack>
-      </Modal>
+      {referenceDatabase && (
+        <ExportFilteredGamesModal
+          opened={exportModalOpen}
+          onClose={exportModalHandlers.close}
+          sourceFile={referenceDatabase}
+          loading={exportLoading}
+          onExport={async ({ destPath, title, append }) => {
+            setExportLoading(true);
+            try {
+              const q = buildBoardLocalExportQuery({
+                ...localOptions,
+                path: referenceDatabase,
+              });
+              return await export_board_filtered_games(
+                referenceDatabase,
+                q,
+                destPath,
+                title,
+                append,
+              );
+            } finally {
+              setExportLoading(false);
+            }
+          }}
+        />
+      )}
       <Stack h="100%" gap={0}>
         <Tabs
           defaultValue="stats"

@@ -78,12 +78,13 @@ export async function query_games(
     return unwrap(await commands.getGames(db, build_game_query_for_commands(query)));
 }
 
-/** Exports every game matching the current filters into a new `.db3` database (same filter semantics as the games table, without pagination). */
+/** Exports every game matching the current filters into a new or existing `.db3` database (same filter semantics as the games table, without pagination). */
 export async function export_filtered_games(
     db: string,
     query: GameQuery,
     destPath: string,
     title: string,
+    append: boolean,
 ): Promise<number> {
     return unwrap(
         await commands.exportFilteredGamesToDatabase(
@@ -91,6 +92,7 @@ export async function export_filtered_games(
             build_game_query_for_commands(query),
             destPath,
             title,
+            append,
         ),
     );
 }
@@ -101,8 +103,11 @@ export async function export_board_filtered_games(
     query: GameQuery,
     destPath: string,
     title: string,
+    append: boolean,
 ): Promise<number> {
-    return unwrap(await commands.exportFilteredGamesToDatabase(db, query, destPath, title));
+    return unwrap(
+        await commands.exportFilteredGamesToDatabase(db, query, destPath, title, append),
+    );
 }
 
 export async function query_players(

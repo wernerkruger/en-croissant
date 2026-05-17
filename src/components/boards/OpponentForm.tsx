@@ -6,17 +6,21 @@ import {
   InputWrapper,
   NumberInput,
   SegmentedControl,
+  Select,
   Stack,
   TextInput,
 } from "@mantine/core";
 import { IconCpu, IconUser } from "@tabler/icons-react";
 import { useTranslation } from "react-i18next";
-import type { GoMode } from "@/bindings";
+import type { ChesscomBotManifestEntry, GoMode } from "@/bindings";
 import GoModeInput from "@/components/common/GoModeInput";
 import TimeInput, { type TimeType } from "@/components/common/TimeInput";
 import EngineSettingsForm from "@/components/panels/analysis/EngineSettingsForm";
 import type { TimeControlField } from "@/utils/clock";
 import type { EngineSettings, LocalEngine } from "@/utils/engines";
+import useSWR from "swr";
+import { commands } from "@/bindings";
+import { unwrap } from "@/utils/unwrap";
 import { EnginesSelect } from "./EnginesSelect";
 
 export type OpponentSettings =
@@ -29,6 +33,7 @@ export type OpponentSettings =
     }
   | {
       type: "engine";
+      name?: string;
       timeControl?: TimeControlField;
       engine: LocalEngine | null;
       go: GoMode;
@@ -38,6 +43,8 @@ export type OpponentSettings =
       /** When set, engine receives UCI_LimitStrength / UCI_Elo if it supports them */
       limitStrength?: boolean;
       limitElo?: number;
+      /** Play using a Chess.com style bot move profile (see Databases → Chess.com style bots). */
+      styleBotProfileId?: string;
     };
 
 export const DEFAULT_TIME_CONTROL: TimeControlField = {
@@ -57,6 +64,14 @@ export function OpponentForm({
   setOtherOpponent: React.Dispatch<React.SetStateAction<OpponentSettings>>;
 }) {
   const { t } = useTranslation();
+  const { data: styleBots } = useSWR("chesscom-bots", async () =>
+    unwrap(await commands.listChesscomBotProfiles()),
+  );
+
+  const styleBotOptions = (styleBots ?? []).map((b: ChesscomBotManifestEntry) => ({
+    value: b.id,
+    label: `${b.botUsername} (${b.targetElo})`,
+  }));
 
   function updateType(type: "engine" | "human") {
     if (type === "human") {
@@ -213,7 +228,33 @@ export function OpponentForm({
         )}
       </Group>
 
-      {opponent.type === "engine" && (
+      {opponent.type === "engine" && styleBotOptions.length > 0 && (
+        <>
+          <Select
+            label={t("Board.Opponent.StyleBot")}
+            description={t("Board.Opponent.StyleBotHint")}
+            placeholder={t("Board.Opponent.StyleBotNone")}
+            data={styleBotOptions}
+            value={opponent.styleBotProfileId ?? null}
+            onChange={(id: string | null) =>
+              setOpponent((prev) => {
+                if (prev.type !== "engine") return prev;
+                const bot = styleBots?.find((b) => b.id === id);
+                return {
+                  ...prev,
+                  styleBotProfileId: id ?? undefined,
+                  limitStrength: !id,
+                  limitElo: bot?.targetElo ?? prev.limitElo,
+                  name: bot?.botUsername,
+                };
+              })
+            }
+            clearable
+          />
+        </>
+      )}
+
+      {opponent.type === "engine" && !opponent.styleBotProfileId && (
         <>
           <Divider variant="dashed" label={t("Board.Opponent.StrengthLimit")} />
           <Checkbox

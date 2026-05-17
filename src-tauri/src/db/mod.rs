@@ -1474,81 +1474,12 @@ pub async fn get_games(
     })
 }
 
-/// Copies every game matching `query` (ignoring pagination) into a new database file.
-#[tauri::command]
-#[specta::specta]
-pub async fn export_filtered_games_to_database(
-    source: PathBuf,
-    query: GameQuery,
-    dest_path: PathBuf,
-    title: String,
-    state: tauri::State<'_, AppState>,
-) -> Result<i32, Error> {
-    if crate::enc_local_db::is_enc_local_sentinel(&source) {
-        return Err(Error::EncLocalGamesReadOnly);
-    }
-    if dest_path.exists() {
-        return Err(std::io::Error::other("database file already exists").into());
-    }
-
-    let mut export_query = query;
-    export_query.options = Some({
-        let mut o = export_query.options.unwrap_or_default();
-        o.page = None;
-        o.page_size = None;
-        o.skip_count = true;
-        o
-    });
-
-    let games_raw = if export_query.position.is_some() {
-        self::search::load_all_games_matching_position_export(
-            source.clone(),
-            export_query.clone(),
-            &state,
-        )
-        .await?
-    } else {
-        let source_db = &mut get_db_or_create(
-            &state,
-            source.to_str().unwrap(),
-            ConnectionOptions::default(),
-        )?;
-        let (g, _) = query_games_filtered(source_db, export_query)?;
-        g
-    };
-
-    let db_path = dest_path.to_str().unwrap();
-    let dest_db = &mut get_db_or_create(
-        &state,
-        db_path,
-        ConnectionOptions {
-            enable_foreign_keys: false,
-            busy_timeout: None,
-            journal_mode: JournalMode::Off,
-        },
-    )?;
-
-    dest_db.batch_execute(CREATE_TABLES_SQL)?;
-
-    diesel::insert_into(info::table)
-        .values((
-            info::name.eq("Version"),
-            info::value.eq(Some(DATABASE_VERSION.to_string())),
-        ))
-        .execute(dest_db)?;
-    diesel::insert_into(info::table)
-        .values((info::name.eq("Title"), info::value.eq(Some(title))))
-        .execute(dest_db)?;
-    diesel::insert_into(info::table)
-        .values((
-            info::name.eq("Description"),
-            info::value.eq(Some(String::new())),
-        ))
-        .execute(dest_db)?;
-
-    let exported = games_raw.len() as i32;
-
-    dest_db.transaction::<_, diesel::result::Error, _>(|conn| {
+fn copy_games_into_database(
+    dest_db: &mut SqliteConnection,
+    games_raw: Vec<(Game, Player, Player, Event, Site)>,
+) -> Result<usize, diesel::result::Error> {
+    let count = games_raw.len();
+    dest_db.transaction(|conn| {
         for (game, white, black, event, site) in games_raw {
             let white_name = white.name.as_deref().unwrap_or("Unknown");
             let black_name = black.name.as_deref().unwrap_or("Unknown");
@@ -1586,30 +1517,105 @@ pub async fn export_filtered_games_to_database(
                 .values(&new_game)
                 .execute(conn)?;
         }
-        Ok(())
-    })?;
+        Ok(count)
+    })
+}
 
-    dest_db.batch_execute(INDEXES_SQL)?;
+/// Copies every game matching `query` (ignoring pagination) into a new or existing database file.
+#[tauri::command]
+#[specta::specta]
+pub async fn export_filtered_games_to_database(
+    source: PathBuf,
+    query: GameQuery,
+    dest_path: PathBuf,
+    title: String,
+    append: bool,
+    state: tauri::State<'_, AppState>,
+) -> Result<i32, Error> {
+    if crate::enc_local_db::is_enc_local_sentinel(&source) {
+        return Err(Error::EncLocalGamesReadOnly);
+    }
+    if crate::enc_local_db::is_enc_local_sentinel(&dest_path) {
+        return Err(Error::EncLocalGamesReadOnly);
+    }
+    if append {
+        if source == dest_path {
+            return Err(std::io::Error::other("cannot export to the same database").into());
+        }
+        if !dest_path.exists() {
+            return Err(std::io::Error::other("database file does not exist").into());
+        }
+    } else if dest_path.exists() {
+        return Err(std::io::Error::other("database file already exists").into());
+    }
 
-    let game_count: i64 = games::table.count().get_result(dest_db)?;
-    let player_count: i64 = players::table.count().get_result(dest_db)?;
-    let event_count: i64 = events::table.count().get_result(dest_db)?;
-    let site_count: i64 = sites::table.count().get_result(dest_db)?;
+    let mut export_query = query;
+    export_query.options = Some({
+        let mut o = export_query.options.unwrap_or_default();
+        o.page = None;
+        o.page_size = None;
+        o.skip_count = true;
+        o
+    });
 
-    for c in [
-        ("GameCount", game_count),
-        ("PlayerCount", player_count),
-        ("EventCount", event_count),
-        ("SiteCount", site_count),
-    ]
-    .iter()
-    {
-        insert_into(info::table)
-            .values((info::name.eq(c.0), info::value.eq(c.1.to_string())))
-            .on_conflict(info::name)
-            .do_update()
-            .set(info::value.eq(c.1.to_string()))
+    let games_raw = if export_query.position.is_some() {
+        self::search::load_all_games_matching_position_export(
+            source.clone(),
+            export_query.clone(),
+            &state,
+        )
+        .await?
+    } else {
+        let source_db = &mut get_db_or_create(
+            &state,
+            source.to_str().unwrap(),
+            ConnectionOptions::default(),
+        )?;
+        let (g, _) = query_games_filtered(source_db, export_query)?;
+        g
+    };
+
+    let exported = games_raw.len() as i32;
+    if exported == 0 {
+        return Ok(0);
+    }
+
+    let db_path = dest_path.to_str().unwrap();
+    let dest_db = &mut get_db_or_create(
+        &state,
+        db_path,
+        ConnectionOptions {
+            enable_foreign_keys: false,
+            busy_timeout: None,
+            journal_mode: JournalMode::Off,
+        },
+    )?;
+
+    if append {
+        copy_games_into_database(dest_db, games_raw)?;
+        update_info_counts(dest_db)?;
+    } else {
+        dest_db.batch_execute(CREATE_TABLES_SQL)?;
+
+        diesel::insert_into(info::table)
+            .values((
+                info::name.eq("Version"),
+                info::value.eq(Some(DATABASE_VERSION.to_string())),
+            ))
             .execute(dest_db)?;
+        diesel::insert_into(info::table)
+            .values((info::name.eq("Title"), info::value.eq(Some(title))))
+            .execute(dest_db)?;
+        diesel::insert_into(info::table)
+            .values((
+                info::name.eq("Description"),
+                info::value.eq(Some(String::new())),
+            ))
+            .execute(dest_db)?;
+
+        copy_games_into_database(dest_db, games_raw)?;
+        dest_db.batch_execute(INDEXES_SQL)?;
+        update_info_counts(dest_db)?;
     }
 
     Ok(exported)
@@ -2399,6 +2405,207 @@ pub async fn write_db_game(
     Ok(())
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+pub struct PlayerNameMatch {
+    pub id: i32,
+    pub name: String,
+    pub game_count: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+pub struct ConsolidatePlayerNamesResult {
+    pub target_player_id: i32,
+    pub players_merged: i32,
+    pub games_updated: i32,
+}
+
+fn player_game_count(db: &mut SqliteConnection, player_id: i32) -> Result<i64, diesel::result::Error> {
+    games::table
+        .filter(games::white_id.eq(player_id).or(games::black_id.eq(player_id)))
+        .count()
+        .get_result(db)
+}
+
+fn merge_player_ids_unchecked(
+    db: &mut SqliteConnection,
+    from_id: i32,
+    to_id: i32,
+) -> Result<i32, diesel::result::Error> {
+    if from_id == to_id {
+        return Ok(0);
+    }
+    let white_updates = diesel::update(games::table.filter(games::white_id.eq(from_id)))
+        .set(games::white_id.eq(to_id))
+        .execute(db)?;
+    let black_updates = diesel::update(games::table.filter(games::black_id.eq(from_id)))
+        .set(games::black_id.eq(to_id))
+        .execute(db)?;
+    diesel::delete(players::table.filter(players::id.eq(from_id))).execute(db)?;
+    Ok((white_updates + black_updates) as i32)
+}
+
+fn find_players_matching_name_tokens(
+    db: &mut SqliteConnection,
+    tokens: &[String],
+    canonical_name: &str,
+) -> Result<Vec<PlayerNameMatch>, diesel::result::Error> {
+    let all_players = players::table
+        .filter(players::name.is_not("Unknown"))
+        .filter(players::id.ne(0))
+        .load::<Player>(db)?;
+
+    let canonical_trimmed = canonical_name.trim();
+    let mut matches: Vec<PlayerNameMatch> = all_players
+        .into_iter()
+        .filter_map(|player| {
+            let name = player.name?;
+            let name_lower = name.to_lowercase();
+            let token_match = tokens.is_empty()
+                || tokens
+                    .iter()
+                    .any(|token| name_lower.contains(&token.to_lowercase()));
+            let canonical_match = !canonical_trimmed.is_empty()
+                && name.eq_ignore_ascii_case(canonical_trimmed);
+            if token_match || canonical_match {
+                let game_count = player_game_count(db, player.id).ok()?;
+                Some(PlayerNameMatch {
+                    id: player.id,
+                    name,
+                    game_count,
+                })
+            } else {
+                None
+            }
+        })
+        .collect();
+
+    matches.sort_by(|a, b| b.game_count.cmp(&a.game_count).then_with(|| a.name.cmp(&b.name)));
+    Ok(matches)
+}
+
+fn pick_consolidation_target(
+    matches: &[PlayerNameMatch],
+    canonical_name: &str,
+    target_player_id: Option<i32>,
+) -> Result<i32, Error> {
+    if let Some(id) = target_player_id {
+        if matches.iter().any(|m| m.id == id) {
+            return Ok(id);
+        }
+    }
+    let canonical_trimmed = canonical_name.trim();
+    if let Some(m) = matches
+        .iter()
+        .find(|m| m.name.eq_ignore_ascii_case(canonical_trimmed))
+    {
+        return Ok(m.id);
+    }
+    matches
+        .first()
+        .map(|m| m.id)
+        .ok_or(Error::NoMatchingPlayers)
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn preview_player_name_consolidation(
+    file: PathBuf,
+    tokens: Vec<String>,
+    canonical_name: String,
+    state: tauri::State<'_, AppState>,
+) -> Result<Vec<PlayerNameMatch>, Error> {
+    if crate::enc_local_db::is_enc_local_sentinel(&file) {
+        return Err(Error::EncLocalGamesReadOnly);
+    }
+    let db = &mut get_db_or_create(&state, file.to_str().unwrap(), ConnectionOptions::default())?;
+    let tokens: Vec<String> = tokens
+        .into_iter()
+        .map(|t| t.trim().to_string())
+        .filter(|t| !t.is_empty())
+        .collect();
+    let matches = find_players_matching_name_tokens(db, &tokens, &canonical_name)?;
+    Ok(matches)
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn consolidate_player_names(
+    file: PathBuf,
+    tokens: Vec<String>,
+    canonical_name: String,
+    target_player_id: Option<i32>,
+    state: tauri::State<'_, AppState>,
+) -> Result<ConsolidatePlayerNamesResult, Error> {
+    if crate::enc_local_db::is_enc_local_sentinel(&file) {
+        return Err(Error::EncLocalGamesReadOnly);
+    }
+    let canonical_trimmed = canonical_name.trim();
+    if canonical_trimmed.is_empty() {
+        return Err(std::io::Error::other("canonical name is required").into());
+    }
+
+    let db = &mut get_db_or_create(
+        &state,
+        file.to_str().unwrap(),
+        ConnectionOptions {
+            enable_foreign_keys: false,
+            busy_timeout: None,
+            journal_mode: JournalMode::Off,
+        },
+    )?;
+
+    let tokens: Vec<String> = tokens
+        .into_iter()
+        .map(|t| t.trim().to_string())
+        .filter(|t| !t.is_empty())
+        .collect();
+
+    let mut matches = find_players_matching_name_tokens(db, &tokens, canonical_trimmed)?;
+
+    if let Some(existing) = players::table
+        .filter(players::name.eq(canonical_trimmed))
+        .first::<Player>(db)
+        .optional()?
+    {
+        if !matches.iter().any(|m| m.id == existing.id) {
+            let game_count = player_game_count(db, existing.id)?;
+            matches.push(PlayerNameMatch {
+                id: existing.id,
+                name: existing.name.unwrap_or_else(|| canonical_trimmed.to_string()),
+                game_count,
+            });
+        }
+    }
+
+    if matches.is_empty() {
+        return Err(Error::NoMatchingPlayers);
+    }
+
+    let target_id = pick_consolidation_target(&matches, canonical_trimmed, target_player_id)?;
+    let mut games_updated = 0i32;
+    let mut players_merged = 0i32;
+
+    for player in &matches {
+        if player.id == target_id {
+            continue;
+        }
+        games_updated += merge_player_ids_unchecked(db, player.id, target_id)?;
+        players_merged += 1;
+    }
+
+    diesel::update(players::table.filter(players::id.eq(target_id)))
+        .set(players::name.eq(canonical_trimmed))
+        .execute(db)?;
+
+    update_info_counts(db)?;
+
+    Ok(ConsolidatePlayerNamesResult {
+        target_player_id: target_id,
+        players_merged,
+        games_updated,
+    })
+}
+
 #[tauri::command]
 #[specta::specta]
 pub async fn merge_players(
@@ -2424,14 +2631,7 @@ pub async fn merge_players(
         return Err(Error::NotDistinctPlayers);
     }
 
-    diesel::update(games::table.filter(games::white_id.eq(player1)))
-        .set(games::white_id.eq(player2))
-        .execute(db)?;
-    diesel::update(games::table.filter(games::black_id.eq(player1)))
-        .set(games::black_id.eq(player2))
-        .execute(db)?;
-
-    diesel::delete(players::table.filter(players::id.eq(player1))).execute(db)?;
+    merge_player_ids_unchecked(db, player1, player2)?;
 
     let player_count: i64 = players::table.count().get_result(db)?;
     update_info_count(db, "PlayerCount", player_count)?;

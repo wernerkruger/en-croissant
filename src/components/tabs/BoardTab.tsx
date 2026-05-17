@@ -22,6 +22,8 @@ export function BoardTab({
   tabType,
   setActiveTab,
   closeTab,
+  closeOtherTabs,
+  canCloseOthers,
   renameTab,
   duplicateTab,
   selected,
@@ -30,6 +32,8 @@ export function BoardTab({
   tabType: string;
   setActiveTab: (v: string) => void;
   closeTab: (v: string) => void;
+  closeOtherTabs: (v: string) => void;
+  canCloseOthers: boolean;
   renameTab: (v: string, n: string) => void;
   duplicateTab: (v: string) => void;
   selected: boolean;
@@ -112,17 +116,24 @@ export function BoardTab({
           leftSection={<IconCopy size="0.875rem" />}
           onClick={() => duplicateTab(tab.value)}
         >
-          Duplicate Tab
+          {t("Tab.DuplicateTab")}
         </Menu.Item>
         <Menu.Item leftSection={<IconEdit size="0.875rem" />} onClick={() => toggleRenaming(true)}>
-          Rename Tab
+          {t("Tab.RenameTab")}
         </Menu.Item>
         <Menu.Item
           color="red"
           leftSection={<IconX size="0.875rem" />}
           onClick={() => closeTab(tab.value)}
         >
-          Close Tab
+          {t("Tab.CloseTab")}
+        </Menu.Item>
+        <Menu.Item
+          color="red"
+          disabled={!canCloseOthers}
+          onClick={() => closeOtherTabs(tab.value)}
+        >
+          {t("Tab.CloseOthers")}
         </Menu.Item>
       </Menu.Dropdown>
     </Menu>

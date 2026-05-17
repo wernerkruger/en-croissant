@@ -160,9 +160,6 @@ async recordEncroissantHumanVsHumanGame(args: RecordEncroissantHumanGameArgs) : 
     else return { status: "error", error: e  as any };
 }
 },
-/**
- * SQLite path for local En Croissant played games (engine and human vs human).
- */
 async getEncroissantLocalGamesDbPath() : Promise<Result<string, string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("get_encroissant_local_games_db_path") };
@@ -453,11 +450,11 @@ async getGames(file: string, query: GameQuery) : Promise<Result<QueryResponse<No
 }
 },
 /**
- * Copies every game matching `query` (ignoring pagination) into a new database file.
+ * Copies every game matching `query` (ignoring pagination) into a new or existing database file.
  */
-async exportFilteredGamesToDatabase(source: string, query: GameQuery, destPath: string, title: string) : Promise<Result<number, string>> {
+async exportFilteredGamesToDatabase(source: string, query: GameQuery, destPath: string, title: string, append: boolean) : Promise<Result<number, string>> {
     try {
-    return { status: "ok", data: await TAURI_INVOKE("export_filtered_games_to_database", { source, query, destPath, title }) };
+    return { status: "ok", data: await TAURI_INVOKE("export_filtered_games_to_database", { source, query, destPath, title, append }) };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
@@ -474,6 +471,22 @@ async searchPosition(file: string, query: GameQuery, tabId: string) : Promise<Re
 async getPlayers(file: string, query: PlayerQuery) : Promise<Result<QueryResponse<Player[]>, string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("get_players", { file, query }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async previewPlayerNameConsolidation(file: string, tokens: string[], canonicalName: string) : Promise<Result<PlayerNameMatch[], string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("preview_player_name_consolidation", { file, tokens, canonicalName }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async consolidatePlayerNames(file: string, tokens: string[], canonicalName: string, targetPlayerId: number | null) : Promise<Result<ConsolidatePlayerNamesResult, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("consolidate_player_names", { file, tokens, canonicalName, targetPlayerId }) };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
@@ -588,6 +601,46 @@ async getSoundServerPort() : Promise<Result<number, string>> {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
 }
+},
+async getChesscomBotsDirectory() : Promise<Result<string, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("get_chesscom_bots_directory") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async parseChesscomUsersFile(content: string) : Promise<Result<ChesscomUserEntry[], string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("parse_chesscom_users_file", { content }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async listChesscomBotProfiles() : Promise<Result<ChesscomBotManifestEntry[], string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("list_chesscom_bot_profiles") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async downloadChesscomRapidGamesBatch(entries: ChesscomUserEntry[], progressId: string) : Promise<Result<ChesscomDownloadBatchResult, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("download_chesscom_rapid_games_batch", { entries, progressId }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async buildChesscomBotProfilesBatch(enginePath: string, maxGamesPerUser: number | null, forceRestart: boolean, progressId: string) : Promise<Result<BuildChesscomBotProfilesResult, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("build_chesscom_bot_profiles_batch", { enginePath, maxGamesPerUser, forceRestart, progressId }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
 }
 }
 
@@ -617,9 +670,20 @@ progressEvent: "progress-event"
 /** user-defined types **/
 
 export type AnalysisOptions = { fen: string; moves: string[]; annotateNovelties: boolean; referenceDb: string | null; reversed: boolean }
+export type AppendGameReviewBuildLogArgs = { 
+/**
+ * One JSON object per line (NDJSON / JSONL), appended to `game_review_build_logs.jsonl`.
+ */
+payload: string }
 export type BestMoves = { nodes: number; depth: number; score: Score; uciMoves: string[]; sanMoves: string[]; multipv: number; nps: number }
 export type BestMovesPayload = { bestLines: BestMoves[]; engine: string; tab: string; fen: string; moves: string[]; progress: number }
+export type BuildChesscomBotProfilesResult = { profiles: ChesscomBotProfile[]; playersBuilt: number; playersSkippedComplete: number; playersResumed: number; totalPositionsAnalyzed: number }
+export type ChesscomBotManifestEntry = { id: string; targetElo: number; sourceUsername: string; botUsername: string; gamesFile: string; profileFile: string; profileComplete?: boolean }
+export type ChesscomBotProfile = { id: string; targetElo: number; sourceUsername: string; botUsername: string; moves: Partial<{ [key in string]: MoveProfileBucket }>; gamesAnalyzed: number; positionsAnalyzed: number }
+export type ChesscomDownloadBatchResult = { bots: ChesscomBotManifestEntry[]; downloaded: number; skipped: number }
+export type ChesscomUserEntry = { targetElo: number; username: string }
 export type ClockUpdateEvent = { gameId: string; whiteTime: bigint | null; blackTime: bigint | null }
+export type ConsolidatePlayerNamesResult = { target_player_id: number; players_merged: number; games_updated: number }
 export type DatabaseInfo = { title: string; description: string; player_count: number; event_count: number; game_count: number; storage_size: bigint; filename: string; indexed: boolean; twic_last_issue?: number | null; twic_max_game_date?: string | null }
 export type DatabaseProgress = { id: string; progress: number }
 export type DrawReason = "stalemate" | "insufficientMaterial" | "threefoldRepetition" | "fiftyMoveRule" | "agreement"
@@ -643,17 +707,22 @@ export type GameSort = "id" | "date" | "whiteElo" | "blackElo" | "ply_count"
 export type GameState = { gameId: string; status: GameStatus; initialFen: string; moves: GameMove[]; currentFen: string; ply: number; turn: string; whiteTime: bigint | null; blackTime: bigint | null; whitePlayer: string; blackPlayer: string }
 export type GameStatus = "playing" | { finished: { result: GameResult } }
 export type GetEncDisplayRatingArgs = { username: string; timeControl: string }
-export type AppendGameReviewBuildLogArgs = { payload: string }
-export type LoadGameMoveReviewArgs = { gameKey: string }
 export type GoMode = { t: "PlayersTime"; c: PlayersTime } | { t: "Depth"; c: number } | { t: "Time"; c: number } | { t: "Nodes"; c: number } | { t: "Infinite" }
+export type LoadGameMoveReviewArgs = { gameKey: string }
 export type MoveAnalysis = { best: BestMoves[]; novelty: boolean; is_sacrifice: boolean }
+export type MoveProfileBucket = { 
+/**
+ * Fraction of moves at engine rank 1..N (index 0 = best move).
+ */
+rankRates: number[]; total: bigint }
 export type NormalizedGame = { id: number; fen: string; event: string; event_id: number; site: string; site_id: number; date?: string | null; time?: string | null; round?: string | null; white: string; white_id: number; white_elo?: number | null; black: string; black_id: number; black_elo?: number | null; result: Outcome; time_control?: string | null; eco?: string | null; ply_count?: number | null; moves: string }
 export type OpeningBookConfig = { path: string; maxPly?: bigint }
 export type OutOpening = { name: string; fen: string }
 export type Outcome = "1-0" | "0-1" | "1/2-1/2" | "*"
 export type Player = { id: number; name: string | null; elo: number | null }
-export type PlayerConfig = { type: "human"; name: string } | { type: "engine"; name: string; path: string; options?: EngineOption[]; go: GoMode | null }
+export type PlayerConfig = { type: "human"; name: string } | { type: "engine"; name: string; path: string; options?: EngineOption[]; go: GoMode | null; bot_profile_id?: string | null }
 export type PlayerGameInfo = { site_stats_data: SiteStatsData[] }
+export type PlayerNameMatch = { id: number; name: string; game_count: bigint }
 export type PlayerQuery = { options: QueryOptions<PlayerSort>; name?: string | null; range?: [number, number] | null }
 /**
  * Which color the player must have in a game (`Any` = white or black).
@@ -670,8 +739,8 @@ export type PuzzleDatabaseInfo = { title: string; description: string; puzzleCou
 export type QueryOptions<SortT> = { skipCount: boolean; page?: number | null; pageSize?: number | null; sort: SortT; direction: SortDirection }
 export type QueryResponse<T> = { data: T; count: number | null }
 export type RecordEncroissantEngineGameArgs = { username: string; humanIsWhite: boolean; outcome: string; opponentElo: number | null; limitStrength: boolean; timeControl: string; movesUci: string[]; date: string }
-export type SaveGameMoveReviewArgs = { gameKey: string; payload: string }
 export type RecordEncroissantHumanGameArgs = { whiteName: string; blackName: string; result: GameResult; whiteTimeControl: string; blackTimeControl: string; movesUci: string[]; date: string }
+export type SaveGameMoveReviewArgs = { gameKey: string; payload: string }
 export type Score = { value: ScoreValue; 
 /**
  * The probability of each result (win, draw, loss).

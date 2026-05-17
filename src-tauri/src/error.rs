@@ -69,6 +69,9 @@ pub enum Error {
     #[error("Players aren't the same. They have played against each other")]
     NotDistinctPlayers,
 
+    #[error("No players matched the given name criteria")]
+    NoMatchingPlayers,
+
     #[error("Game not found: {0}")]
     GameNotFound(String),
 

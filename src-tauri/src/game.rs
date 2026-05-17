@@ -43,6 +43,9 @@ pub enum PlayerConfig {
         #[serde(default)]
         options: Vec<EngineOption>,
         go: Option<GoMode>,
+        /// Play moves sampled from a Chess.com style bot profile instead of raw engine best move.
+        #[serde(default)]
+        bot_profile_id: Option<String>,
     },
 }
 
@@ -184,6 +187,8 @@ struct GameController {
     clock: Option<ClockState>,
     white_engine: Option<Arc<Mutex<BaseEngine>>>,
     black_engine: Option<Arc<Mutex<BaseEngine>>>,
+    white_bot_profile: Option<crate::chesscom_bots::ChesscomBotProfile>,
+    black_bot_profile: Option<crate::chesscom_bots::ChesscomBotProfile>,
     shutdown_tx: Option<watch::Sender<bool>>,
     move_notify_tx: Option<tokio::sync::mpsc::Sender<()>>,
     engine_thinking: bool,
@@ -236,6 +241,8 @@ impl GameController {
             clock,
             white_engine: None,
             black_engine: None,
+            white_bot_profile: None,
+            black_bot_profile: None,
             shutdown_tx: None,
             move_notify_tx: None,
             engine_thinking: false,
@@ -594,7 +601,17 @@ impl GameManager {
         controller.polyglot_book = polyglot_book;
         controller.polyglot_max_ply = polyglot_max_ply;
 
-        if let PlayerConfig::Engine { path, options, .. } = &config.white {
+        if let PlayerConfig::Engine {
+            path,
+            options,
+            bot_profile_id,
+            ..
+        } = &config.white
+        {
+            if let Some(id) = bot_profile_id {
+                controller.white_bot_profile =
+                    Some(crate::chesscom_bots::load_profile(&app, id)?);
+            }
             let mut engine = BaseEngine::spawn(PathBuf::from(path)).await?;
             engine.init_uci().await?;
             for opt in options {
@@ -611,7 +628,17 @@ impl GameManager {
             controller.white_engine = Some(Arc::new(Mutex::new(engine)));
         }
 
-        if let PlayerConfig::Engine { path, options, .. } = &config.black {
+        if let PlayerConfig::Engine {
+            path,
+            options,
+            bot_profile_id,
+            ..
+        } = &config.black
+        {
+            if let Some(id) = bot_profile_id {
+                controller.black_bot_profile =
+                    Some(crate::chesscom_bots::load_profile(&app, id)?);
+            }
             let mut engine = BaseEngine::spawn(PathBuf::from(path)).await?;
             engine.init_uci().await?;
             for opt in options {
@@ -1461,7 +1488,33 @@ async fn request_engine_move(
         (engine, go_mode, initial_fen, moves, turn)
     };
 
-    let best_move = {
+    let (bot_profile, move_number) = {
+        let ctrl = controller.read().await;
+        let profile = if turn == Color::White {
+            ctrl.white_bot_profile.clone()
+        } else {
+            ctrl.black_bot_profile.clone()
+        };
+        let move_number = if turn == Color::White {
+            (ctrl.moves.len() as u32 / 2) + 1
+        } else {
+            (ctrl.moves.len() as u32 + 1) / 2
+        };
+        (profile, move_number)
+    };
+
+    let best_move = if let Some(profile) = bot_profile {
+        let mut engine = engine_arc.lock().await;
+        let tops =
+            crate::chesscom_bots::engine_top_moves(&mut engine, &initial_fen, &moves).await?;
+        if tops.is_empty() {
+            engine.set_position(&initial_fen, &moves).await?;
+            engine.go(&go_mode).await?;
+            engine.wait_for_bestmove().await?
+        } else {
+            crate::chesscom_bots::pick_move_from_profile(&profile, move_number, &tops)
+        }
+    } else {
         let mut engine = engine_arc.lock().await;
         engine.set_position(&initial_fen, &moves).await?;
         engine.go(&go_mode).await?;

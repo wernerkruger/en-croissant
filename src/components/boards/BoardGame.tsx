@@ -296,12 +296,20 @@ function BoardGame() {
       strengthOpts.push({ name: "UCI_LimitStrength", value: "false" });
     }
 
+    const styleBot = settings.styleBotProfileId;
     return {
       type: "engine",
-      name: settings.engine?.name ?? "Engine",
+      name: settings.name ?? settings.engine?.name ?? "Engine",
       path: settings.engine?.path ?? "",
-      options: [...baseOptions, ...strengthOpts],
+      options: styleBot
+        ? [
+            ...baseOptions,
+            { name: "MultiPV", value: "5" },
+            { name: "UCI_LimitStrength", value: "false" },
+          ]
+        : [...baseOptions, ...strengthOpts],
       go: settings.timeControl ? null : settings.go,
+      bot_profile_id: styleBot ?? null,
     };
   }
 

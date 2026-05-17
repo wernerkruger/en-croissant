@@ -4,6 +4,7 @@
 )]
 
 mod chess;
+mod chesscom_bots;
 mod db;
 mod engine;
 mod enc_local_db;
@@ -75,7 +76,12 @@ use crate::{
     chess::get_best_moves,
     db::{
         delete_duplicated_games, edit_db_info, export_filtered_games_to_database, get_db_info,
-        get_games, get_players, merge_players, repair_game_dates, sync_twic_database, write_db_game,
+        consolidate_player_names, get_games, get_players, merge_players,
+        preview_player_name_consolidation, repair_game_dates, sync_twic_database, write_db_game,
+    },
+    chesscom_bots::{
+        build_chesscom_bot_profiles_batch, download_chesscom_rapid_games_batch,
+        get_chesscom_bots_directory, list_chesscom_bot_profiles, parse_chesscom_users_file,
     },
     fs::{download_file, file_exists, get_file_metadata},
     opening::{
@@ -181,6 +187,8 @@ fn main() {
             export_filtered_games_to_database,
             search_position,
             get_players,
+            preview_player_name_consolidation,
+            consolidate_player_names,
             get_puzzle_db_info,
             get_puzzle_themes,
             get_themes_for_puzzle,
@@ -195,7 +203,12 @@ fn main() {
             preload_reference_db,
             get_progress,
             clear_progress,
-            get_sound_server_port
+            get_sound_server_port,
+            get_chesscom_bots_directory,
+            parse_chesscom_users_file,
+            list_chesscom_bot_profiles,
+            download_chesscom_rapid_games_batch,
+            build_chesscom_bot_profiles_batch,
         ))
         .events(tauri_specta::collect_events!(
             BestMovesPayload,

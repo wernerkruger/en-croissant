@@ -41,7 +41,7 @@ En-Croissant uses pnpm as the package manager for dependencies. Refer to the [pn
 ```bash
 git clone https://github.com/franciscoBSalgueiro/en-croissant
 cd en-croissant
-pnpm install
+When we have mult
 pnpm build
 ```
 

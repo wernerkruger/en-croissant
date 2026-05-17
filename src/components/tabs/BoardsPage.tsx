@@ -45,32 +45,51 @@ export default function BoardsPage() {
   }, [tabs, setActiveTab, setTabs, t]);
 
   const closeTab = useCallback(
-    async (value: string | null, forced?: boolean) => {
-      if (value !== null) {
-        const closedTab = tabs.find((tab) => tab.value === value);
-        const tabState = JSON.parse(sessionStorage.getItem(value) || "{}");
-        if (tabState && isPersistentGameOrigin(closedTab) && tabState.state.dirty && !forced) {
-          toggleSaveModal();
-          return;
-        }
-        if (value === activeTab) {
-          const index = tabs.findIndex((tab) => tab.value === value);
-          if (tabs.length > 1) {
-            if (index === tabs.length - 1) {
-              startTransition(() => setActiveTab(tabs[index - 1].value));
-            } else {
-              startTransition(() => setActiveTab(tabs[index + 1].value));
-            }
-          } else {
-            startTransition(() => setActiveTab(null));
-          }
-        }
-        setTabs((prev) => prev.filter((tab) => tab.value !== value));
-        unwrap(await commands.killEngines(value));
-        await commands.abortGame(`${value}-game`);
+    async (value: string | null, forced?: boolean): Promise<boolean> => {
+      if (value === null) {
+        return false;
       }
+      const closedTab = tabs.find((tab) => tab.value === value);
+      const tabState = JSON.parse(sessionStorage.getItem(value) || "{}");
+      if (tabState && isPersistentGameOrigin(closedTab) && tabState.state.dirty && !forced) {
+        toggleSaveModal();
+        return false;
+      }
+      if (value === activeTab) {
+        const index = tabs.findIndex((tab) => tab.value === value);
+        if (tabs.length > 1) {
+          if (index === tabs.length - 1) {
+            startTransition(() => setActiveTab(tabs[index - 1].value));
+          } else {
+            startTransition(() => setActiveTab(tabs[index + 1].value));
+          }
+        } else {
+          startTransition(() => setActiveTab(null));
+        }
+      }
+      setTabs((prev) => prev.filter((tab) => tab.value !== value));
+      unwrap(await commands.killEngines(value));
+      await commands.abortGame(`${value}-game`);
+      return true;
     },
     [tabs, activeTab, setTabs, toggleSaveModal, setActiveTab],
+  );
+
+  const closeOtherTabs = useCallback(
+    async (keepValue: string) => {
+      startTransition(() => setActiveTab(keepValue));
+      for (const tab of tabs) {
+        if (tab.value === keepValue) {
+          continue;
+        }
+        const closed = await closeTab(tab.value);
+        if (!closed) {
+          startTransition(() => setActiveTab(tab.value));
+          return;
+        }
+      }
+    },
+    [tabs, closeTab, setActiveTab],
   );
 
   function selectTab(index: number) {
@@ -215,6 +234,8 @@ export default function BoardsPage() {
                           tabType={tab.type}
                           setActiveTab={handleSetActiveTab}
                           closeTab={closeTab}
+                          closeOtherTabs={closeOtherTabs}
+                          canCloseOthers={tabs.length > 1}
                           renameTab={renameTab}
                           duplicateTab={duplicateTab}
                           selected={activeTab === tab.value}
