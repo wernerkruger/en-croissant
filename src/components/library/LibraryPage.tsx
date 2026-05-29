@@ -16,18 +16,34 @@ import {
 } from "@mantine/core";
 import { useToggle } from "@mantine/hooks";
 import { notifications } from "@mantine/notifications";
-import { IconArrowLeft, IconBook, IconBook2, IconTrash, IconUpload } from "@tabler/icons-react";
+import {
+  IconArrowLeft,
+  IconBook,
+  IconBook2,
+  IconChess,
+  IconTrash,
+  IconUpload,
+} from "@tabler/icons-react";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { resolve } from "@tauri-apps/api/path";
+import { useNavigate } from "@tanstack/react-router";
 import { open } from "@tauri-apps/plugin-dialog";
 import { remove, writeFile } from "@tauri-apps/plugin-fs";
-import { useAtom, useAtomValue } from "jotai";
+import { useAtom, useAtomValue, useSetAtom } from "jotai";
 import { useCallback, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { currentUserAtom, libraryBooksAtom, readingProgressAtom } from "@/state/atoms";
+import {
+  activeTabAtom,
+  currentUserAtom,
+  libraryBooksAtom,
+  openBookIdAtom,
+  readingProgressAtom,
+  studyBookByTabAtom,
+  tabsAtom,
+} from "@/state/atoms";
 import { getLibraryDir } from "@/utils/directories";
 import { type Book, readingProgressKey, titleFromFileName } from "@/utils/library";
-import { genID } from "@/utils/tabs";
+import { createTab, genID } from "@/utils/tabs";
 import ConfirmModal from "../common/ConfirmModal";
 import { PdfReader } from "./PdfReader";
 
@@ -36,8 +52,13 @@ function LibraryPage() {
   const [books, setBooks] = useAtom(libraryBooksAtom);
   const [progress, setProgress] = useAtom(readingProgressAtom);
   const currentUser = useAtomValue(currentUserAtom) ?? "";
+  const [openBookId, setOpenBookId] = useAtom(openBookIdAtom);
+  const setTabs = useSetAtom(tabsAtom);
+  const setActiveTab = useSetAtom(activeTabAtom);
+  const setStudyBookByTab = useSetAtom(studyBookByTabAtom);
+  const navigate = useNavigate();
 
-  const [selected, setSelected] = useState<Book | null>(null);
+  const selected = books.find((b) => b.id === openBookId) ?? null;
   const [uploading, setUploading] = useState(false);
   const [pendingDelete, setPendingDelete] = useState<Book | null>(null);
   const [deleteModal, toggleDeleteModal] = useToggle();
@@ -100,10 +121,23 @@ function LibraryPage() {
       }
       return next;
     });
-    if (selected?.id === book.id) setSelected(null);
+    if (openBookId === book.id) setOpenBookId(null);
     setPendingDelete(null);
     toggleDeleteModal();
-  }, [pendingDelete, selected, setBooks, setProgress, toggleDeleteModal]);
+  }, [pendingDelete, openBookId, setOpenBookId, setBooks, setProgress, toggleDeleteModal]);
+
+  const openInAnalysis = useCallback(
+    async (book: Book) => {
+      const tabId = await createTab({
+        tab: { name: book.title, type: "study" },
+        setTabs,
+        setActiveTab,
+      });
+      setStudyBookByTab((prev) => ({ ...prev, [tabId]: book.id }));
+      navigate({ to: "/" });
+    },
+    [setStudyBookByTab, setTabs, setActiveTab, navigate],
+  );
 
   const updateProgress = useCallback(
     (book: Book, lastPage: number) => {
@@ -120,20 +154,30 @@ function LibraryPage() {
     const lastPage = progress[readingProgressKey(currentUser, selected.id)] ?? 1;
     return (
       <Stack h="100%" p="md" gap="sm">
-        <Group gap="sm">
-          <Tooltip label={t("Library.BackToLibrary", "Back to library")}>
-            <ActionIcon
-              variant="default"
-              size="lg"
-              onClick={() => setSelected(null)}
-              aria-label={t("Library.BackToLibrary", "Back to library")}
-            >
-              <IconArrowLeft size="1.1rem" />
-            </ActionIcon>
-          </Tooltip>
-          <Title order={4} lineClamp={1}>
-            {selected.title}
-          </Title>
+        <Group gap="sm" justify="space-between" wrap="nowrap">
+          <Group gap="sm" wrap="nowrap" style={{ minWidth: 0 }}>
+            <Tooltip label={t("Library.BackToLibrary", "Back to library")}>
+              <ActionIcon
+                variant="default"
+                size="lg"
+                onClick={() => setOpenBookId(null)}
+                aria-label={t("Library.BackToLibrary", "Back to library")}
+              >
+                <IconArrowLeft size="1.1rem" />
+              </ActionIcon>
+            </Tooltip>
+            <Title order={4} lineClamp={1}>
+              {selected.title}
+            </Title>
+          </Group>
+          <Button
+            variant="default"
+            leftSection={<IconChess size="1rem" />}
+            onClick={() => openInAnalysis(selected)}
+            style={{ flexShrink: 0 }}
+          >
+            {t("Library.OpenAnalysisBoard", "Analysis board")}
+          </Button>
         </Group>
         <Box flex={1} style={{ overflow: "hidden" }}>
           <PdfReader
@@ -198,7 +242,7 @@ function LibraryPage() {
                   padding="sm"
                   radius="md"
                   style={{ cursor: "pointer" }}
-                  onClick={() => setSelected(book)}
+                  onClick={() => setOpenBookId(book.id)}
                 >
                   <Card.Section
                     withBorder

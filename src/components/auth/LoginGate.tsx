@@ -10,29 +10,104 @@ import {
   Title,
   UnstyledButton,
 } from "@mantine/core";
-import { IconChess, IconLogin2, IconUserCircle } from "@tabler/icons-react";
-import { useAtom } from "jotai";
+import {
+  IconChess,
+  IconLogin2,
+  IconUserCircle,
+  IconUserPlus,
+} from "@tabler/icons-react";
+import { useAtom, useSetAtom } from "jotai";
 import { type ReactNode, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { currentUserAtom, knownUsersAtom } from "@/state/atoms";
+import { currentUserAtom, knownUsersAtom, sessionUnlockedAtom } from "@/state/atoms";
 
 /**
  * Wraps the application and forces the user to pick a local profile before the
  * rest of the UI becomes available. The selected username is reused as the
  * default opponent name when playing against bots/engines.
+ *
+ * The remembered profile is preserved between launches, but on each launch the
+ * user must confirm they want to continue as that profile (or switch to a
+ * different one) before the app unlocks.
  */
 export function LoginGate({ children }: { children: ReactNode }) {
   const [currentUser, setCurrentUser] = useAtom(currentUserAtom);
+  const [sessionUnlocked, setSessionUnlocked] = useAtom(sessionUnlockedAtom);
 
-  if (currentUser && currentUser.trim().length > 0) {
+  const hasUser = !!currentUser && currentUser.trim().length > 0;
+
+  if (hasUser && sessionUnlocked) {
     return <>{children}</>;
   }
 
-  return <LoginScreen onLogin={setCurrentUser} />;
+  if (hasUser) {
+    return (
+      <WelcomeBackScreen
+        username={currentUser as string}
+        onContinue={() => setSessionUnlocked(true)}
+        onSwitchUser={() => setCurrentUser(null)}
+      />
+    );
+  }
+
+  return <LoginScreen />;
 }
 
-function LoginScreen({ onLogin }: { onLogin: (username: string) => void }) {
+function WelcomeBackScreen({
+  username,
+  onContinue,
+  onSwitchUser,
+}: {
+  username: string;
+  onContinue: () => void;
+  onSwitchUser: () => void;
+}) {
   const { t } = useTranslation();
+
+  return (
+    <Center data-tauri-drag-region h="100vh" w="100%" style={{ userSelect: "none" }}>
+      <Card withBorder shadow="md" radius="md" w={420} maw="90vw" p="xl">
+        <Stack gap="lg">
+          <Stack align="center" gap="xs">
+            <ThemeIcon size={72} radius="100%" variant="light" color="blue">
+              <IconUserCircle size={40} />
+            </ThemeIcon>
+            <Title order={2}>{t("Login.WelcomeBack", "Welcome back")}</Title>
+            <Text c="dimmed" ta="center" size="sm">
+              {t("Login.ContinueAsPrompt", "You are signed in as")}
+            </Text>
+            <Text fw={700} size="lg">
+              {username}
+            </Text>
+          </Stack>
+
+          <Stack gap="sm">
+            <Button
+              fullWidth
+              leftSection={<IconLogin2 size="1rem" />}
+              onClick={onContinue}
+            >
+              {t("Login.ContinueAs", "Continue as {{user}}", { user: username })}
+            </Button>
+            <Button
+              fullWidth
+              variant="default"
+              leftSection={<IconUserPlus size="1rem" />}
+              onClick={onSwitchUser}
+            >
+              {t("Login.SwitchUser", "Log in as someone else")}
+            </Button>
+          </Stack>
+        </Stack>
+      </Card>
+    </Center>
+  );
+}
+
+function LoginScreen() {
+  const { t } = useTranslation();
+  const setCurrentUser = useSetAtom(currentUserAtom);
+  const setSessionUnlocked = useSetAtom(sessionUnlockedAtom);
   const [knownUsers, setKnownUsers] = useAtom(knownUsersAtom);
   const [username, setUsername] = useState("");
 
@@ -40,7 +115,8 @@ function LoginScreen({ onLogin }: { onLogin: (username: string) => void }) {
     const trimmed = name.trim();
     if (!trimmed) return;
     setKnownUsers((prev) => [trimmed, ...prev.filter((u) => u !== trimmed)]);
-    onLogin(trimmed);
+    setCurrentUser(trimmed);
+    setSessionUnlocked(true);
   }
 
   return (

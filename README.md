@@ -26,6 +26,6 @@ To build a macOS `.dmg` or a Windows installer without owning that hardware, use
 Trigger it by pushing a `v*` tag (or via the **Run workflow** button on the Actions tab):
 
 ```bash
-git tag v0.18.4 && git push origin v0.18.4
+git tag v0.19.0 && git push origin v0.19.0
 ```
 

@@ -1,6 +1,7 @@
 import { ActionIcon, Button, Menu } from "@mantine/core";
 import { useClickOutside, useHotkeys, useToggle } from "@mantine/hooks";
 import {
+  IconBook2,
   IconChess,
   IconCopy,
   IconDatabase,
@@ -143,6 +144,9 @@ export function BoardTab({
 function TabIcon({ tab, tabType }: { tab: Tab; tabType: string }) {
   if (tabType === "puzzles") {
     return <IconPuzzle size="0.875rem" />;
+  }
+  if (tabType === "study") {
+    return <IconBook2 size="0.875rem" />;
   }
   if (tabType === "play") {
     return <IconChess size="0.875rem" />;

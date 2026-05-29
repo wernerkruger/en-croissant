@@ -228,6 +228,13 @@ export const knownUsersAtom = atomWithStorage<string[]>(
     { getOnInit: true },
 );
 
+/**
+ * Whether the active profile has been confirmed for this app launch. Not
+ * persisted, so each time the app starts the user is asked to continue as the
+ * remembered profile or switch to a different one.
+ */
+export const sessionUnlockedAtom = atom(false);
+
 // Library (PDF reader)
 
 export const libraryBooksAtom = atomWithStorage<Book[]>(
@@ -241,6 +248,22 @@ export const readingProgressAtom = atomWithStorage<Record<string, number>>(
     "reading-progress",
     {},
     createZodStorage(z.record(z.string(), z.number()), localStorage),
+);
+
+/**
+ * Id of the book currently open in the reader, or null when viewing the library
+ * grid. Persisted so navigating away (e.g. to a board) and back keeps the book
+ * open.
+ */
+export const openBookIdAtom = atomWithStorage<string | null>("open-book-id", null);
+
+/**
+ * Map of board-tab id to the book id opened in that tab's study (split-screen)
+ * view, so each study tab keeps its own book independently.
+ */
+export const studyBookByTabAtom = atomWithStorage<Record<string, string>>(
+    "study-book-by-tab",
+    {},
 );
 
 // Training plan (tasks)

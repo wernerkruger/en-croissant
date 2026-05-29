@@ -15,6 +15,7 @@ import { unwrap } from "@/utils/unwrap";
 import BoardAnalysis from "../boards/BoardAnalysis";
 import BoardGame from "../boards/BoardGame";
 import { TreeStateProvider } from "../common/TreeStateContext";
+import StudyReader from "../library/StudyReader";
 import Puzzles from "../puzzles/Puzzles";
 import { BoardTab } from "./BoardTab";
 import ConfirmChangesModal from "./ConfirmChangesModal";
@@ -309,6 +310,30 @@ const windowsStateAtom = atomWithStorage<WindowsState>("windowsState", {
   },
 });
 
+// Study tabs add a reading pane on the left of the regular board layout.
+type StudyViewId = "reader" | ViewId;
+
+interface StudyWindowsState {
+  currentNode: MosaicNode<StudyViewId> | null;
+}
+
+const studyWindowsStateAtom = atomWithStorage<StudyWindowsState>("studyWindowsState", {
+  currentNode: {
+    direction: "row",
+    first: "reader",
+    second: {
+      direction: "row",
+      first: "left",
+      second: {
+        direction: "column",
+        first: "topRight",
+        second: "bottomRight",
+      },
+    },
+    splitPercentage: 40,
+  },
+});
+
 function TabSwitch({
   tab,
   saveModalOpened,
@@ -323,6 +348,7 @@ function TabSwitch({
   activeTab: string | null;
 }) {
   const [windowsState, setWindowsState] = useAtom(windowsStateAtom);
+  const [studyWindowsState, setStudyWindowsState] = useAtom(studyWindowsStateAtom);
 
   return match(tab.type)
     .with("new", () => <NewTabHome id={tab.value} />)
@@ -362,6 +388,22 @@ function TabSwitch({
           resize={{ minimumPaneSizePercentage: 0 }}
         />
         <Puzzles id={tab.value} />
+      </TreeStateProvider>
+    ))
+    .with("study", () => (
+      <TreeStateProvider id={tab.value}>
+        <Mosaic<StudyViewId>
+          renderTile={(id) => (id === "reader" ? <StudyReader tabValue={tab.value} /> : fullLayout[id])}
+          value={studyWindowsState.currentNode}
+          onChange={(currentNode) => setStudyWindowsState({ currentNode })}
+          resize={{ minimumPaneSizePercentage: 0 }}
+        />
+        <BoardAnalysis />
+        <ConfirmChangesModal
+          opened={saveModalOpened}
+          toggle={toggleSaveModal}
+          closeTab={() => closeTab(activeTab, true)}
+        />
       </TreeStateProvider>
     ))
     .exhaustive();
