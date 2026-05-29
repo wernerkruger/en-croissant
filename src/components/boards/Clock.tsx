@@ -12,11 +12,14 @@ function Clock({
   turn,
   whiteTime,
   blackTime,
+  large = false,
 }: {
   color: "white" | "black";
   turn: "white" | "black";
   whiteTime?: number;
   blackTime?: number;
+  /** ~50% larger display for live game boards */
+  large?: boolean;
 }) {
   const store = useContext(TreeStateContext)!;
   const root = useStore(store, (s) => s.root);
@@ -46,16 +49,33 @@ function Clock({
 
   return (
     <Paper
-      className={color === "black" ? classes.blackClock : classes.whiteClock}
+      className={
+        large
+          ? color === "black"
+            ? classes.blackClockLarge
+            : classes.whiteClockLarge
+          : color === "black"
+            ? classes.blackClock
+            : classes.whiteClock
+      }
       styles={{
         root: {
           opacity: turn !== color ? 0.5 : 1,
           visibility: clock ? "visible" : "hidden",
           transition: "opacity 0.15s",
+          width: large ? "max-content" : undefined,
+          minWidth: large ? "8.5rem" : undefined,
+          maxWidth: "100%",
         },
       }}
     >
-      <Text fz="lg" fw="bold" px="xs">
+      <Text
+        fz={large ? "1.6875rem" : "lg"}
+        fw="bold"
+        px={large ? "sm" : "xs"}
+        lh={1.2}
+        style={{ whiteSpace: "nowrap", fontVariantNumeric: "tabular-nums" }}
+      >
         {clock ? formatClock(clock) : "0:00"}
       </Text>
       <Progress

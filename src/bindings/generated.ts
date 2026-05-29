@@ -679,7 +679,7 @@ export type BestMoves = { nodes: number; depth: number; score: Score; uciMoves: 
 export type BestMovesPayload = { bestLines: BestMoves[]; engine: string; tab: string; fen: string; moves: string[]; progress: number }
 export type BuildChesscomBotProfilesResult = { profiles: ChesscomBotProfile[]; playersBuilt: number; playersSkippedComplete: number; playersResumed: number; totalPositionsAnalyzed: number }
 export type ChesscomBotManifestEntry = { id: string; targetElo: number; sourceUsername: string; botUsername: string; gamesFile: string; profileFile: string; profileComplete?: boolean }
-export type ChesscomBotProfile = { id: string; targetElo: number; sourceUsername: string; botUsername: string; moves: Partial<{ [key in string]: MoveProfileBucket }>; gamesAnalyzed: number; positionsAnalyzed: number }
+export type ChesscomBotProfile = { id: string; targetElo: number; sourceUsername: string; botUsername: string; moves: Partial<{ [key in string]: MoveProfileBucket }>; gamesAnalyzed: number; positionsAnalyzed: number; profileVersion: number }
 export type ChesscomDownloadBatchResult = { bots: ChesscomBotManifestEntry[]; downloaded: number; skipped: number }
 export type ChesscomUserEntry = { targetElo: number; username: string }
 export type ClockUpdateEvent = { gameId: string; whiteTime: bigint | null; blackTime: bigint | null }
@@ -698,6 +698,7 @@ export type FileMetadata = { last_modified: number }
 export type GameConfig = { white: PlayerConfig; black: PlayerConfig; whiteTimeControl: TimeControl | null; blackTimeControl: TimeControl | null; initialFen: string | null; initialMoves?: string[]; openingBook: OpeningBookConfig | null }
 export type GameEndReason = "checkmate" | "timeout" | "resignation" | "abandonment"
 export type GameMove = { uci: string; san: string; fenAfter: string; clock: bigint | null; whiteTime: bigint | null; blackTime: bigint | null }
+export type EncStoredMove = { uci: string; whiteTimeMs?: number | null; blackTimeMs?: number | null }
 export type GameMoveEvent = { gameId: string; moves: GameMove[]; fen: string; whiteTime: bigint | null; blackTime: bigint | null }
 export type GameOutcome = "Won" | "Drawn" | "Lost"
 export type GameOverEvent = { gameId: string; result: GameResult; moves: GameMove[] }
@@ -712,9 +713,13 @@ export type LoadGameMoveReviewArgs = { gameKey: string }
 export type MoveAnalysis = { best: BestMoves[]; novelty: boolean; is_sacrifice: boolean }
 export type MoveProfileBucket = { 
 /**
- * Fraction of moves at engine rank 1..N (index 0 = best move).
+ * Fraction at engine rank 1..N; last slot = off-book human move.
  */
-rankRates: number[]; total: bigint }
+rankRates: number[]; 
+/**
+ * Human moves not in engine top-N (UCI -> count).
+ */
+offBookMoves: Partial<{ [key in string]: number }>; total: bigint }
 export type NormalizedGame = { id: number; fen: string; event: string; event_id: number; site: string; site_id: number; date?: string | null; time?: string | null; round?: string | null; white: string; white_id: number; white_elo?: number | null; black: string; black_id: number; black_elo?: number | null; result: Outcome; time_control?: string | null; eco?: string | null; ply_count?: number | null; moves: string }
 export type OpeningBookConfig = { path: string; maxPly?: bigint }
 export type OutOpening = { name: string; fen: string }
@@ -732,14 +737,14 @@ export type PlayerSort = "id" | "name" | "elo"
 export type PlayersTime = { white: number; black: number; winc: number; binc: number }
 export type PositionQueryJs = { fen: string; type_: string }
 export type PositionStats = { move: string; white: number; draw: number; black: number }
-export type ProgressEvent = { id: string; progress: number; finished: boolean }
-export type ProgressItem = { id: string; progress: number; finished: boolean }
+export type ProgressEvent = { id: string; progress: number; finished: boolean; message?: string | null }
+export type ProgressItem = { id: string; progress: number; finished: boolean; message?: string | null }
 export type Puzzle = { id: number; fen: string; moves: string; rating: number; rating_deviation: number; popularity: number; nb_plays: number }
 export type PuzzleDatabaseInfo = { title: string; description: string; puzzleCount: number; storageSize: bigint; path: string }
 export type QueryOptions<SortT> = { skipCount: boolean; page?: number | null; pageSize?: number | null; sort: SortT; direction: SortDirection }
 export type QueryResponse<T> = { data: T; count: number | null }
-export type RecordEncroissantEngineGameArgs = { username: string; humanIsWhite: boolean; outcome: string; opponentElo: number | null; limitStrength: boolean; timeControl: string; movesUci: string[]; date: string }
-export type RecordEncroissantHumanGameArgs = { whiteName: string; blackName: string; result: GameResult; whiteTimeControl: string; blackTimeControl: string; movesUci: string[]; date: string }
+export type RecordEncroissantEngineGameArgs = { username: string; humanIsWhite: boolean; outcome: string; opponentElo: number | null; limitStrength: boolean; timeControl: string; moves: EncStoredMove[]; date: string; opponentName?: string | null; styleBotProfileId?: string | null }
+export type RecordEncroissantHumanGameArgs = { whiteName: string; blackName: string; result: GameResult; whiteTimeControl: string; blackTimeControl: string; moves: EncStoredMove[]; date: string }
 export type SaveGameMoveReviewArgs = { gameKey: string; payload: string }
 export type Score = { value: ScoreValue; 
 /**

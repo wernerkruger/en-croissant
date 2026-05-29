@@ -1,9 +1,8 @@
 .chessboard {
   position: relative;
-  flex: 1;
   z-index: 1;
-  display: flex;
-  aspect-ratio: 1;
+  flex-shrink: 0;
+  overflow: hidden;
 }
 
 [data-mantine-color-scheme="dark"]

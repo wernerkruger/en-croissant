@@ -1,5 +1,5 @@
 import type { DrawBrushes, DrawShape } from "@lichess-org/chessground/draw";
-import { ActionIcon, Box, Center, Group, Text, useMantineTheme } from "@mantine/core";
+import { ActionIcon, Box, Center, Group, Stack, Text, useMantineTheme } from "@mantine/core";
 import { notifications } from "@mantine/notifications";
 import { IconChevronRight } from "@tabler/icons-react";
 import {
@@ -15,7 +15,7 @@ import { chessgroundDests, chessgroundMove } from "chessops/compat";
 import { makeFen, parseFen } from "chessops/fen";
 import { makeSan } from "chessops/san";
 import { useAtom, useAtomValue, useSetAtom } from "jotai";
-import { memo, useCallback, useContext, useEffect, useMemo, useState } from "react";
+import { memo, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { useHotkeys } from "react-hotkeys-hook";
 import { useTranslation } from "react-i18next";
 import { match } from "ts-pattern";
@@ -46,6 +46,7 @@ import {
   showVariationArrowsAtom,
   snapArrowsAtom,
 } from "@/state/atoms";
+import { useBoardSquareSize } from "@/hooks/useBoardSquareSize";
 import { keyMapAtom } from "@/state/keybinds";
 import classes from "@/styles/Chessboard.module.css";
 import { ANNOTATION_INFO, isBasicAnnotation } from "@/utils/annotation";
@@ -397,270 +398,306 @@ function Board({
   const topPlayer = orientation === "white" ? headers.black : headers.white;
   const bottomPlayer = orientation === "white" ? headers.white : headers.black;
 
+  const boardAreaRef = useRef<HTMLDivElement>(null);
+  const boardSize = useBoardSquareSize(boardAreaRef);
+
   return (
     <>
       <Box w="100%" h="100%">
-        <Box
+        <Group
+          wrap="nowrap"
+          align="stretch"
+          gap="sm"
           style={{
-            display: "flex",
-            flexDirection: "column",
             width: "100%",
             height: "100%",
-            gap: "0.5rem",
-            flexWrap: "nowrap",
-            overflow: "hidden",
+            minWidth: 0,
             maxWidth:
-              //            topbar   bottompadding                tabs                                  bottomb    topbar   evalbar                                gaps    ???
               `calc(100vh - 2.25rem - var(--mantine-spacing-sm) - 2.5rem - var(--mantine-spacing-sm) - ${BAR_HEIGHT} - ${BAR_HEIGHT} + 1.563rem + var(--mantine-spacing-md) - 1rem  - 0.2rem)`,
           }}
         >
-          <BoardBar
-            name={topPlayer}
-            rating={orientation === "white" ? headers.black_elo : headers.white_elo}
-            onNameClick={() => {
-              if (orientation === "white") {
-                setBlackFideOpen(true);
-              } else {
-                setWhiteFideOpen(true);
-              }
-            }}
-            height={BAR_HEIGHT}
-          >
-            <ShowMaterial
-              fen={currentNode.fen}
-              color={orientation === "white" ? "black" : "white"}
-              mode={materialDisplay}
-            />
-            {hasClock && (
+          <Stack flex={1} gap="0.5rem" miw={0} mih={0} style={{ overflow: "hidden" }}>
+            <BoardBar
+              name={topPlayer}
+              rating={orientation === "white" ? headers.black_elo : headers.white_elo}
+              onNameClick={() => {
+                if (orientation === "white") {
+                  setBlackFideOpen(true);
+                } else {
+                  setWhiteFideOpen(true);
+                }
+              }}
+              height={BAR_HEIGHT}
+            >
+              <ShowMaterial
+                fen={currentNode.fen}
+                color={orientation === "white" ? "black" : "white"}
+                mode={materialDisplay}
+              />
+            </BoardBar>
+
+            <Group flex={1} wrap="nowrap" gap="sm" miw={0} mih={0} align="stretch">
+              <Box h="100%" w={25} style={{ flexShrink: 0 }}>
+                {!evalOpen && (
+                  <Center h="100%" w="100%">
+                    <ActionIcon
+                      size="1rem"
+                      onClick={() => setEvalOpen(true)}
+                      onContextMenu={(e) => {
+                        setEvalOpen(true);
+                        e.preventDefault();
+                      }}
+                    >
+                      <IconChevronRight />
+                    </ActionIcon>
+                  </Center>
+                )}
+                {evalOpen && (
+                  <EvalBar score={currentNode.score || null} orientation={orientation} />
+                )}
+              </Box>
+
+              <Box
+                ref={boardAreaRef}
+                flex={1}
+                mih={0}
+                miw={0}
+                h="100%"
+                pos="relative"
+                style={{ overflow: "hidden" }}
+              >
+                {showComments &&
+                  currentNode.move &&
+                  square !== undefined &&
+                  boardSize > 0 &&
+                  (reviewEntry ? (
+                    <Box
+                      w={boardSize}
+                      h={boardSize}
+                      pos="absolute"
+                      top={0}
+                      left={0}
+                      style={{ pointerEvents: "none", zIndex: 2 }}
+                    >
+                      <GameReviewHint
+                        orientation={orientation}
+                        square={square}
+                        kind={reviewEntry.kind}
+                        title={
+                          reviewEntry.openingName
+                            ? `${t(`Board.Analysis.ReviewKind.${reviewEntry.kind}`)} — ${[reviewEntry.openingEco, reviewEntry.openingName].filter(Boolean).join(" ")}`
+                            : t(`Board.Analysis.ReviewKind.${reviewEntry.kind}`)
+                        }
+                      />
+                    </Box>
+                  ) : (
+                    currentNode.annotations.length > 0 && (
+                      <Box
+                        w={boardSize}
+                        h={boardSize}
+                        pos="absolute"
+                        top={0}
+                        left={0}
+                        style={{ pointerEvents: "none", zIndex: 2 }}
+                      >
+                        <AnnotationHint
+                          orientation={orientation}
+                          square={square}
+                          annotation={currentNode.annotations[0]}
+                        />
+                      </Box>
+                    )
+                  ))}
+
+                {boardSize > 0 && (
+                  <Box
+                    className={classes.chessboard}
+                    ref={boardRef}
+                    w={boardSize}
+                    h={boardSize}
+                    onClick={() => {
+                      eraseDrawablesOnClick && clearShapes();
+                    }}
+                    onWheel={(e) => {
+                      if (enableBoardScroll) {
+                        if (e.deltaY > 0) {
+                          goToNext();
+                        } else {
+                          goToPrevious();
+                        }
+                      }
+                    }}
+                    style={
+                      isBasicAnnotation(visualAnnotation)
+                        ? {
+                            "--light-color": lightColor,
+                            "--dark-color": darkColor,
+                          }
+                        : undefined
+                    }
+                  >
+                    <PromotionModal
+                      pendingMove={pendingMove}
+                      cancelMove={() => setPendingMove(null)}
+                      confirmMove={(p) => {
+                        if (pendingMove) {
+                          makeMove({
+                            from: pendingMove.from,
+                            to: pendingMove.to,
+                            promotion: p,
+                          });
+                        }
+                      }}
+                      turn={turn}
+                      orientation={orientation}
+                    />
+
+                    <Chessground
+                      ref={cgRef}
+                      setBoardFen={setBoardFen}
+                      orientation={orientation}
+                      fen={currentNode.fen}
+                      animation={{ enabled: !editingMode }}
+                      coordinates={showCoordinates !== "no"}
+                      coordinatesOnSquares={showCoordinates === "all"}
+                      movable={{
+                        free: editingMode,
+                        color: movableColor,
+                        dests:
+                          editingMode || viewOnly
+                            ? undefined
+                            : disableVariations && currentNode.children.length > 0
+                              ? undefined
+                              : dests,
+                        showDests,
+                        events: {
+                          after(orig, dest, metadata) {
+                            if (!editingMode) {
+                              const from = parseSquare(orig)!;
+                              const to = parseSquare(dest)!;
+
+                              if (pos) {
+                                if (
+                                  pos.board.get(from)?.role === "pawn" &&
+                                  ((dest[1] === "8" && turn === "white") ||
+                                    (dest[1] === "1" && turn === "black"))
+                                ) {
+                                  if (autoPromote && !metadata.ctrlKey) {
+                                    makeMove({
+                                      from,
+                                      to,
+                                      promotion: "queen",
+                                    });
+                                  } else {
+                                    setPendingMove({
+                                      from,
+                                      to,
+                                    });
+                                  }
+                                } else {
+                                  makeMove({
+                                    from,
+                                    to,
+                                  });
+                                }
+                              }
+                            }
+                          },
+                        },
+                      }}
+                      events={{
+                        select: (key) => {
+                          if (editingMode && selectedPiece) {
+                            const square = parseSquare(key);
+                            if (square) {
+                              const setup = parseFen(currentNode.fen).unwrap();
+                              setup.board.set(square, selectedPiece);
+                              setFen(makeFen(setup));
+                            }
+                          }
+                        },
+                      }}
+                      turnColor={turn}
+                      check={moveHighlight && pos?.isCheck()}
+                      lastMove={moveHighlight && !editingMode ? lastMove : undefined}
+                      premovable={{
+                        enabled: enablePremoves && !editingMode && !viewOnly,
+                      }}
+                      draggable={{
+                        enabled: true,
+                        deleteOnDropOff: editingMode,
+                      }}
+                      drawable={{
+                        enabled: true,
+                        visible: true,
+                        defaultSnapToValidMove: snapArrows,
+                        autoShapes: shapes,
+                        brushes: {
+                          variation: {
+                            key: "v",
+                            color: "#9b59b6",
+                            opacity: 0.8,
+                            lineWidth: 10,
+                          },
+                        } as unknown as DrawBrushes,
+                        onChange: (shapes) => {
+                          setShapes(shapes);
+                        },
+                      }}
+                    />
+                  </Box>
+                )}
+              </Box>
+            </Group>
+
+            <BoardBar
+              name={bottomPlayer}
+              rating={orientation === "white" ? headers.white_elo : headers.black_elo}
+              onNameClick={() => {
+                if (orientation === "white") {
+                  setWhiteFideOpen(true);
+                } else {
+                  setBlackFideOpen(true);
+                }
+              }}
+              height={BAR_HEIGHT}
+            >
+              {error && (
+                <Text ta="center" c="red">
+                  {t(chessopsError(error))}
+                </Text>
+              )}
+
+              {moveInput && <MoveInput currentNode={currentNode} />}
+
+              <ShowMaterial fen={currentNode.fen} color={orientation} mode={materialDisplay} />
+            </BoardBar>
+          </Stack>
+
+          {hasClock && (
+            <Stack
+              justify="center"
+              gap="sm"
+              pr="sm"
+              style={{ flexShrink: 0, overflow: "visible", width: "auto" }}
+            >
               <Clock
                 color={orientation === "black" ? "white" : "black"}
                 turn={turn}
                 whiteTime={whiteTime}
                 blackTime={blackTime}
+                large
               />
-            )}
-          </BoardBar>
-          <Group
-            style={{
-              position: "relative",
-              flexWrap: "nowrap",
-            }}
-            gap="sm"
-          >
-            {showComments &&
-              currentNode.move &&
-              square !== undefined &&
-              (reviewEntry ? (
-                <Box pl="2.5rem" w="100%" h="100%" pos="absolute">
-                  <Box pos="relative" w="100%" h="100%">
-                    <GameReviewHint
-                      orientation={orientation}
-                      square={square}
-                      kind={reviewEntry.kind}
-                      title={
-                        reviewEntry.openingName
-                          ? `${t(`Board.Analysis.ReviewKind.${reviewEntry.kind}`)} — ${[reviewEntry.openingEco, reviewEntry.openingName].filter(Boolean).join(" ")}`
-                          : t(`Board.Analysis.ReviewKind.${reviewEntry.kind}`)
-                      }
-                    />
-                  </Box>
-                </Box>
-              ) : (
-                currentNode.annotations.length > 0 && (
-                  <Box pl="2.5rem" w="100%" h="100%" pos="absolute">
-                    <Box pos="relative" w="100%" h="100%">
-                      <AnnotationHint
-                        orientation={orientation}
-                        square={square}
-                        annotation={currentNode.annotations[0]}
-                      />
-                    </Box>
-                  </Box>
-                )
-              ))}
-            <Box
-              h="100%"
-              style={{
-                width: 25,
-              }}
-            >
-              {!evalOpen && (
-                <Center h="100%" w="100%">
-                  <ActionIcon
-                    size="1rem"
-                    onClick={() => setEvalOpen(true)}
-                    onContextMenu={(e) => {
-                      setEvalOpen(true);
-                      e.preventDefault();
-                    }}
-                  >
-                    <IconChevronRight />
-                  </ActionIcon>
-                </Center>
-              )}
-              {evalOpen && <EvalBar score={currentNode.score || null} orientation={orientation} />}
-            </Box>
-            <Box
-              style={
-                isBasicAnnotation(visualAnnotation)
-                  ? {
-                      "--light-color": lightColor,
-                      "--dark-color": darkColor,
-                    }
-                  : undefined
-              }
-              className={classes.chessboard}
-              ref={boardRef}
-              onClick={() => {
-                eraseDrawablesOnClick && clearShapes();
-              }}
-              onWheel={(e) => {
-                if (enableBoardScroll) {
-                  if (e.deltaY > 0) {
-                    goToNext();
-                  } else {
-                    goToPrevious();
-                  }
-                }
-              }}
-            >
-              <PromotionModal
-                pendingMove={pendingMove}
-                cancelMove={() => setPendingMove(null)}
-                confirmMove={(p) => {
-                  if (pendingMove) {
-                    makeMove({
-                      from: pendingMove.from,
-                      to: pendingMove.to,
-                      promotion: p,
-                    });
-                  }
-                }}
+              <Clock
+                color={orientation}
                 turn={turn}
-                orientation={orientation}
+                whiteTime={whiteTime}
+                blackTime={blackTime}
+                large
               />
-
-              <Chessground
-                ref={cgRef}
-                setBoardFen={setBoardFen}
-                orientation={orientation}
-                fen={currentNode.fen}
-                animation={{ enabled: !editingMode }}
-                coordinates={showCoordinates !== "no"}
-                coordinatesOnSquares={showCoordinates === "all"}
-                movable={{
-                  free: editingMode,
-                  color: movableColor,
-                  dests:
-                    editingMode || viewOnly
-                      ? undefined
-                      : disableVariations && currentNode.children.length > 0
-                        ? undefined
-                        : dests,
-                  showDests,
-                  events: {
-                    after(orig, dest, metadata) {
-                      if (!editingMode) {
-                        const from = parseSquare(orig)!;
-                        const to = parseSquare(dest)!;
-
-                        if (pos) {
-                          if (
-                            pos.board.get(from)?.role === "pawn" &&
-                            ((dest[1] === "8" && turn === "white") ||
-                              (dest[1] === "1" && turn === "black"))
-                          ) {
-                            if (autoPromote && !metadata.ctrlKey) {
-                              makeMove({
-                                from,
-                                to,
-                                promotion: "queen",
-                              });
-                            } else {
-                              setPendingMove({
-                                from,
-                                to,
-                              });
-                            }
-                          } else {
-                            makeMove({
-                              from,
-                              to,
-                            });
-                          }
-                        }
-                      }
-                    },
-                  },
-                }}
-                events={{
-                  select: (key) => {
-                    if (editingMode && selectedPiece) {
-                      const square = parseSquare(key);
-                      if (square) {
-                        const setup = parseFen(currentNode.fen).unwrap();
-                        setup.board.set(square, selectedPiece);
-                        setFen(makeFen(setup));
-                      }
-                    }
-                  },
-                }}
-                turnColor={turn}
-                check={moveHighlight && pos?.isCheck()}
-                lastMove={moveHighlight && !editingMode ? lastMove : undefined}
-                premovable={{
-                  enabled: enablePremoves && !editingMode && !viewOnly,
-                }}
-                draggable={{
-                  enabled: true,
-                  deleteOnDropOff: editingMode,
-                }}
-                drawable={{
-                  enabled: true,
-                  visible: true,
-                  defaultSnapToValidMove: snapArrows,
-                  autoShapes: shapes,
-                  brushes: {
-                    variation: {
-                      key: "v",
-                      color: "#9b59b6",
-                      opacity: 0.8,
-                      lineWidth: 10,
-                    },
-                  } as unknown as DrawBrushes,
-                  onChange: (shapes) => {
-                    setShapes(shapes);
-                  },
-                }}
-              />
-            </Box>
-          </Group>
-          <BoardBar
-            name={bottomPlayer}
-            rating={orientation === "white" ? headers.white_elo : headers.black_elo}
-            onNameClick={() => {
-              if (orientation === "white") {
-                setWhiteFideOpen(true);
-              } else {
-                setBlackFideOpen(true);
-              }
-            }}
-            height={BAR_HEIGHT}
-          >
-            {error && (
-              <Text ta="center" c="red">
-                {t(chessopsError(error))}
-              </Text>
-            )}
-
-            {moveInput && <MoveInput currentNode={currentNode} />}
-
-            <ShowMaterial fen={currentNode.fen} color={orientation} mode={materialDisplay} />
-            {hasClock && (
-              <Clock color={orientation} turn={turn} whiteTime={whiteTime} blackTime={blackTime} />
-            )}
-          </BoardBar>
-        </Box>
+            </Stack>
+          )}
+        </Group>
       </Box>
       <FideInfo opened={whiteFideOpen} setOpened={setWhiteFideOpen} name={headers.white} />
       <FideInfo opened={blackFideOpen} setOpened={setBlackFideOpen} name={headers.black} />

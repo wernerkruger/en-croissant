@@ -1,7 +1,9 @@
 .cg-wrap {
-  box-sizing: content-box;
+  box-sizing: border-box;
   position: relative;
   display: block;
+  width: 100%;
+  height: 100%;
 }
 
 cg-container {

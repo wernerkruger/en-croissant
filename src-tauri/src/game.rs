@@ -1488,7 +1488,7 @@ async fn request_engine_move(
         (engine, go_mode, initial_fen, moves, turn)
     };
 
-    let (bot_profile, move_number) = {
+    let (bot_profile, move_number, position_key, legal_moves) = {
         let ctrl = controller.read().await;
         let profile = if turn == Color::White {
             ctrl.white_bot_profile.clone()
@@ -1500,19 +1500,40 @@ async fn request_engine_move(
         } else {
             (ctrl.moves.len() as u32 + 1) / 2
         };
-        (profile, move_number)
+        let position_key = crate::chesscom_bots::position_key_from_chess(&ctrl.position);
+        let setup = ctrl.position.clone().into_setup(EnPassantMode::Legal);
+        let castling = CastlingMode::detect(&setup);
+        let legal_moves: Vec<String> = ctrl
+            .position
+            .legal_moves()
+            .into_iter()
+            .map(|m| UciMove::from_move(&m, castling).to_string())
+            .collect();
+        (profile, move_number, position_key, legal_moves)
     };
 
     let best_move = if let Some(profile) = bot_profile {
         let mut engine = engine_arc.lock().await;
-        let tops =
-            crate::chesscom_bots::engine_top_moves(&mut engine, &initial_fen, &moves).await?;
+        crate::chesscom_bots::configure_style_bot_engine(&mut engine, profile.target_elo).await?;
+        let tops = crate::chesscom_bots::engine_top_moves(
+            &mut engine,
+            &initial_fen,
+            &moves,
+            crate::chesscom_bots::ANALYSIS_DEPTH_PLAY,
+        )
+        .await?;
         if tops.is_empty() {
             engine.set_position(&initial_fen, &moves).await?;
             engine.go(&go_mode).await?;
             engine.wait_for_bestmove().await?
         } else {
-            crate::chesscom_bots::pick_move_from_profile(&profile, move_number, &tops)
+            crate::chesscom_bots::pick_move_from_profile(
+                &profile,
+                &position_key,
+                move_number,
+                &tops,
+                &legal_moves,
+            )
         }
     } else {
         let mut engine = engine_arc.lock().await;

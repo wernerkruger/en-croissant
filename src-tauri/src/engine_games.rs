@@ -8,7 +8,7 @@ use libm::erf;
 use rusqlite::{params, Connection};
 use serde::{Deserialize, Serialize};
 use serde_json;
-use shakmaty::{uci::UciMove, Chess, EnPassantMode, Position};
+use shakmaty::{san::SanPlus, uci::UciMove, Chess, Color, EnPassantMode, Position};
 use specta::Type;
 use tauri::{AppHandle, Manager};
 
@@ -89,7 +89,92 @@ fn open_conn(app: &AppHandle) -> Result<Connection, Error> {
         "ALTER TABLE engine_games ADD COLUMN moves_uci_json TEXT NOT NULL DEFAULT '[]'",
         [],
     );
+    let _ = conn.execute(
+        "ALTER TABLE engine_games ADD COLUMN opponent_name TEXT",
+        [],
+    );
+    let _ = conn.execute(
+        "ALTER TABLE engine_games ADD COLUMN style_bot_profile_id TEXT",
+        [],
+    );
     Ok(conn)
+}
+
+/// One ply stored in the local games database (supports legacy JSON of plain UCI strings).
+#[derive(Debug, Clone, Default, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct EncStoredMove {
+    pub uci: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub white_time_ms: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub black_time_ms: Option<u64>,
+}
+
+pub fn parse_stored_moves_json(s: &str) -> Vec<EncStoredMove> {
+    if let Ok(moves) = serde_json::from_str::<Vec<EncStoredMove>>(s) {
+        return moves;
+    }
+    if let Ok(ucis) = serde_json::from_str::<Vec<String>>(s) {
+        return ucis
+            .into_iter()
+            .map(|uci| EncStoredMove {
+                uci,
+                ..Default::default()
+            })
+            .collect();
+    }
+    Vec::new()
+}
+
+fn format_clk(seconds: f64) -> String {
+    let s = seconds.max(0.0);
+    let hours = (s / 3600.0).floor() as u32;
+    let minutes = ((s % 3600.0) / 60.0).floor() as u32;
+    let secs = s % 60.0;
+    format!(
+        "{hours}:{minutes:02}:{secs:05.2}",
+        hours = hours,
+        minutes = minutes,
+        secs = secs
+    )
+}
+
+/// Build SAN movetext with `[%clk]` comments for database viewing.
+pub fn san_movetext_with_clocks(moves: &[EncStoredMove]) -> Option<(String, i32)> {
+    let mut chess = Chess::default();
+    let mut parts = Vec::new();
+    let mut fullmove = 1;
+    let mut side = Color::White;
+    for m in moves {
+        let u = UciMove::from_ascii(m.uci.as_bytes()).ok()?;
+        let mv = u.to_move(&chess).ok()?;
+        let san = SanPlus::from_move(chess.clone(), &mv);
+        let mut comment_parts = Vec::new();
+        let clk_ms = if side == Color::White {
+            m.white_time_ms
+        } else {
+            m.black_time_ms
+        };
+        if let Some(ms) = clk_ms {
+            comment_parts.push(format!("[%clk {}]", format_clk(ms as f64 / 1000.0)));
+        }
+        let comment = if comment_parts.is_empty() {
+            String::new()
+        } else {
+            format!(" {{ {} }}", comment_parts.join(" "))
+        };
+        if side == Color::White {
+            parts.push(format!("{}. {}{}", fullmove, san, comment));
+        } else {
+            parts.push(format!("{}{}", san, comment));
+            fullmove += 1;
+        }
+        chess.play_unchecked(&mv);
+        side = !side;
+    }
+    let ply = moves.len() as i32;
+    Some((parts.join(" "), ply))
 }
 
 /// Excel `NORM.DIST(Rv, 0, 2000/7, TRUE)` — CDF of Normal(0, σ) at Rv with σ = 2000/7.
@@ -176,8 +261,12 @@ pub struct RecordEncroissantEngineGameArgs {
     pub opponent_elo: Option<i32>,
     pub limit_strength: bool,
     pub time_control: String,
-    pub moves_uci: Vec<String>,
+    pub moves: Vec<EncStoredMove>,
     pub date: String,
+    #[serde(default)]
+    pub opponent_name: Option<String>,
+    #[serde(default)]
+    pub style_bot_profile_id: Option<String>,
 }
 
 #[tauri::command]
@@ -199,9 +288,25 @@ pub async fn record_encroissant_engine_game(
         return Ok(());
     };
 
-    let opening = opening_from_uci_moves(&args.moves_uci);
-    let moves_json = serde_json::to_string(&args.moves_uci).unwrap_or_else(|_| "[]".to_string());
+    let ucis: Vec<String> = args.moves.iter().map(|m| m.uci.clone()).collect();
+    let opening = opening_from_uci_moves(&ucis);
+    let moves_json = serde_json::to_string(&args.moves).unwrap_or_else(|_| "[]".to_string());
     let perf = perf_from_time_control(&args.time_control).to_string();
+
+    let mut opponent_elo = args.opponent_elo;
+    if opponent_elo.is_none() {
+        if let Some(ref id) = args.style_bot_profile_id {
+            if let Ok(profile) = crate::chesscom_bots::load_profile(&app, id) {
+                opponent_elo = Some(profile.target_elo);
+            }
+        }
+    }
+    if opponent_elo.is_none() {
+        opponent_elo = args
+            .opponent_name
+            .as_deref()
+            .and_then(crate::chesscom_bots::parse_style_bot_elo_from_name);
+    }
 
     let conn = open_conn(&app)?;
     let tx = conn.unchecked_transaction()?;
@@ -230,9 +335,10 @@ pub async fn record_encroissant_engine_game(
         |row| Ok((row.get(0)?, row.get(1)?)),
     )?;
 
-    let rated = args.limit_strength && args.opponent_elo.is_some();
+    // Rate whenever opponent strength is known (style bots, UCI-limited engines).
+    let rated = opponent_elo.is_some();
     let (rating_after, rated_games_after) = if rated {
-        let opp = args.opponent_elo.unwrap() as f64;
+        let opp = opponent_elo.unwrap() as f64;
         let r = rating_before as f64;
         let p = expected_score(r, opp);
         let k = k_factor(rated_games_before);
@@ -248,13 +354,14 @@ pub async fn record_encroissant_engine_game(
     tx.execute(
         "INSERT INTO engine_games (
             player_id, perf, human_was_white, opponent_elo, rated,
-            player_elo_before, player_elo_after, result, time_control, date, opening, moves_uci_json
-        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
+            player_elo_before, player_elo_after, result, time_control, date, opening, moves_uci_json,
+            opponent_name, style_bot_profile_id
+        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
         params![
             player_id,
             perf,
             args.human_is_white as i32,
-            args.opponent_elo,
+            opponent_elo,
             i32::from(rated),
             rating_before,
             rating_after,
@@ -263,6 +370,8 @@ pub async fn record_encroissant_engine_game(
             args.date,
             opening,
             moves_json,
+            args.opponent_name,
+            args.style_bot_profile_id,
         ],
     )?;
 
@@ -294,7 +403,7 @@ pub struct RecordEncroissantHumanGameArgs {
     pub result: GameResult,
     pub white_time_control: String,
     pub black_time_control: String,
-    pub moves_uci: Vec<String>,
+    pub moves: Vec<EncStoredMove>,
     pub date: String,
 }
 
@@ -311,7 +420,8 @@ pub async fn record_encroissant_human_vs_human_game(
     }
     let white = if white.is_empty() { "White" } else { white };
     let black = if black.is_empty() { "Black" } else { black };
-    let opening = opening_from_uci_moves(&args.moves_uci);
+    let ucis: Vec<String> = args.moves.iter().map(|m| m.uci.clone()).collect();
+    let opening = opening_from_uci_moves(&ucis);
     let time_control = if args.white_time_control == args.black_time_control {
         args.white_time_control.clone()
     } else {
@@ -319,7 +429,7 @@ pub async fn record_encroissant_human_vs_human_game(
     };
     let result_pgn = game_result_pgn(&args.result).to_string();
     let result_json = serde_json::to_string(&args.result).unwrap_or_default();
-    let moves_json = serde_json::to_string(&args.moves_uci).unwrap_or_else(|_| "[]".to_string());
+    let moves_json = serde_json::to_string(&args.moves).unwrap_or_else(|_| "[]".to_string());
     let conn = open_conn(&app)?;
     conn.execute(
         "INSERT INTO human_vs_human_games (

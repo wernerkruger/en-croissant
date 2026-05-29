@@ -135,14 +135,25 @@ export function Chessground({ ref, ...props }: ChessgroundProps) {
     });
   }, [api, props, moveMethod]);
 
+  useEffect(() => {
+    const el = boardRef.current;
+    if (!el || !api) return;
+    const observer = new ResizeObserver(() => {
+      api.redrawAll();
+    });
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [api]);
+
   const boardImage = useAtomValue(boardImageAtom);
   const boardCoordColors = getBoardCoordinateColors(boardImage);
 
   return (
     <Box
       style={{
-        aspectRatio: 1,
         width: "100%",
+        height: "100%",
+        display: "block",
         "--board-image": `url('/board/${boardImage}')`,
         "--board-coord-color-white": boardCoordColors.white,
         "--board-coord-color-black": boardCoordColors.black,

@@ -57,7 +57,7 @@ pub async fn download_file(
         downloaded += chunk.len() as u64;
         if let Some(total_size) = total_size {
             let progress = ((downloaded as f32 / total_size as f32) * 100.0).min(100.0);
-            update_progress(&state.progress_state, &app, id.clone(), progress, false)?;
+            update_progress(&state.progress_state, &app, id.clone(), progress, false, None)?;
         }
     }
 
@@ -75,7 +75,7 @@ pub async fn download_file(
     }
 
     if finalize {
-        update_progress(&state.progress_state, &app, id, 100.0, true)?;
+        update_progress(&state.progress_state, &app, id, 100.0, true, None)?;
     }
     // remove_file(&path).await;
     Ok(())

@@ -9,7 +9,6 @@ use std::time::Instant;
 use dashmap::DashMap;
 use log::info;
 use rusqlite::params;
-use serde_json;
 use shakmaty::san::SanPlus;
 use shakmaty::uci::UciMove;
 use shakmaty::{Chess, Color, Position};
@@ -19,10 +18,13 @@ use tauri::Emitter;
 use crate::db::game_matches_player_filters;
 use crate::db::{
     convert_position_query, get_move_after_match_uci, GameResult, NormalizedGame, Outcome, Player,
-    DatabaseInfo, GameOutcome, GameQuery, GameSort, PlayerQuery, PlayerSort, PositionQuery,
-    PositionStats, ProgressPayload, QueryOptions, QueryResponse, SortDirection,
+    DatabaseInfo, GameOutcome, GameQuery, GameSort, PlayerGameInfo, PlayerQuery, PlayerSort,
+    PositionQuery, PositionStats, ProgressPayload, QueryOptions, QueryResponse, SortDirection,
 };
-use crate::engine_games::{local_engine_games_file_path, open_enc_games_connection};
+use crate::engine_games::{
+    load_site_stats, local_engine_games_file_path, open_enc_games_connection,
+    parse_stored_moves_json, san_movetext_with_clocks,
+};
 use crate::error::Error;
 use crate::AppState;
 
@@ -154,6 +156,19 @@ fn build_name_to_id_map(conn: &rusqlite::Connection) -> Result<HashMap<String, i
     Ok(m)
 }
 
+/// Best current rating across time-control buckets (from `engine_ratings`).
+fn player_display_elo(conn: &rusqlite::Connection, player_id: i32) -> Option<i32> {
+    if player_id <= 0 || player_id == ENGINE_SYNTHETIC_PLAYER_ID {
+        return None;
+    }
+    conn.query_row(
+        "SELECT MAX(rating) FROM engine_ratings WHERE player_id = ?1",
+        params![player_id],
+        |row| row.get(0),
+    )
+    .ok()
+}
+
 fn roster_players(conn: &rusqlite::Connection) -> Result<Vec<Player>, Error> {
     let eng_n: i32 = conn.query_row("SELECT COUNT(*) FROM engine_games", [], |r| r.get(0))?;
     let mut out: Vec<Player> = Vec::new();
@@ -173,7 +188,7 @@ fn roster_players(conn: &rusqlite::Connection) -> Result<Vec<Player>, Error> {
         out.push(Player {
             id,
             name: Some(name),
-            elo: None,
+            elo: player_display_elo(conn, id),
         });
     }
     let map = build_name_to_id_map(conn)?;
@@ -200,14 +215,10 @@ fn roster_players(conn: &rusqlite::Connection) -> Result<Vec<Player>, Error> {
     Ok(out)
 }
 
-fn parse_moves_json(s: &str) -> Vec<String> {
-    serde_json::from_str(s).unwrap_or_default()
-}
-
 fn load_engine_games(conn: &rusqlite::Connection) -> Result<Vec<NormalizedGame>, Error> {
     let mut stmt = conn.prepare(
         "SELECT g.id, g.human_was_white, g.player_elo_before, g.opponent_elo, g.rated, g.result, \
-         g.time_control, g.date, g.opening, g.moves_uci_json, p.username \
+         g.time_control, g.date, g.opening, g.moves_uci_json, p.username, g.opponent_name \
          FROM engine_games g \
          JOIN engine_players p ON g.player_id = p.id",
     )?;
@@ -224,6 +235,7 @@ fn load_engine_games(conn: &rusqlite::Connection) -> Result<Vec<NormalizedGame>,
             row.get::<_, String>(8)?,
             row.get::<_, String>(9)?,
             row.get::<_, String>(10)?,
+            row.get::<_, Option<String>>(11)?,
         ))
     })?;
     let mut list = Vec::new();
@@ -240,16 +252,18 @@ fn load_engine_games(conn: &rusqlite::Connection) -> Result<Vec<NormalizedGame>,
             opening,
             moves_json,
             username,
+            opponent_name,
         ) = r?;
         let hw = human_was_white != 0;
         let Some(outcome) = outcome_from_engine_row(result, hw) else {
             continue;
         };
-        let moves_uci = parse_moves_json(&moves_json);
-        let (movetext, ply_count) = if moves_uci.is_empty() {
+        let stored_moves = parse_stored_moves_json(&moves_json);
+        let (movetext, ply_count) = if stored_moves.is_empty() {
             (String::new(), 0)
         } else {
-            san_movetext_and_ply(&moves_uci).unwrap_or((String::new(), moves_uci.len() as i32))
+            san_movetext_with_clocks(&stored_moves)
+                .unwrap_or((String::new(), stored_moves.len() as i32))
         };
         let result_tok = pgn_result_token(&outcome);
         let moves = if movetext.is_empty() {
@@ -257,10 +271,16 @@ fn load_engine_games(conn: &rusqlite::Connection) -> Result<Vec<NormalizedGame>,
         } else {
             format!("{movetext} {result_tok}")
         };
+        let opponent_label = opponent_name
+            .filter(|n| !n.is_empty())
+            .unwrap_or_else(|| "Engine".to_string());
+        let opponent_elo = opponent_elo.or_else(|| {
+            crate::chesscom_bots::parse_style_bot_elo_from_name(&opponent_label)
+        });
         let (white, black) = if hw {
-            (username.clone(), "Engine".to_string())
+            (username.clone(), opponent_label)
         } else {
-            ("Engine".to_string(), username.clone())
+            (opponent_label, username.clone())
         };
         let (white_elo, black_elo) = if hw {
             (Some(player_elo_before), opponent_elo)
@@ -332,11 +352,12 @@ fn load_hvh_games(conn: &rusqlite::Connection) -> Result<Vec<NormalizedGame>, Er
         let Ok(outcome) = std::str::FromStr::from_str(&pgn) else {
             continue;
         };
-        let moves_uci = parse_moves_json(&mj);
-        let (movetext, ply_count) = if moves_uci.is_empty() {
+        let stored_moves = parse_stored_moves_json(&mj);
+        let (movetext, ply_count) = if stored_moves.is_empty() {
             (String::new(), 0)
         } else {
-            san_movetext_and_ply(&moves_uci).unwrap_or((String::new(), moves_uci.len() as i32))
+            san_movetext_with_clocks(&stored_moves)
+                .unwrap_or((String::new(), stored_moves.len() as i32))
         };
         let result_tok = pgn_result_token(&outcome);
         let moves = if movetext.is_empty() {
@@ -539,6 +560,26 @@ pub fn enc_local_get_player(app: &AppHandle, id: i32) -> Result<Option<Player>, 
     Ok(players.into_iter().find(|p| p.id == id))
 }
 
+pub fn enc_local_get_players_game_info(app: &AppHandle, id: i32) -> Result<PlayerGameInfo, Error> {
+    if id == ENGINE_SYNTHETIC_PLAYER_ID {
+        return Ok(PlayerGameInfo::default());
+    }
+    let conn = open_enc_games_connection(app)?;
+    let players = roster_players(&conn)?;
+    let Some(player) = players.into_iter().find(|p| p.id == id) else {
+        return Ok(PlayerGameInfo::default());
+    };
+    let name = player.name.as_deref().unwrap_or("").trim();
+    if name.is_empty() {
+        return Ok(PlayerGameInfo::default());
+    }
+    let mut info = PlayerGameInfo::default();
+    if let Some(stats) = load_site_stats(app, name)? {
+        info.site_stats_data.push(stats);
+    }
+    Ok(info)
+}
+
 struct EncPositionSearchRow {
     id: i32,
     white_id: i32,
@@ -608,7 +649,10 @@ fn load_enc_position_search_rows(conn: &rusqlite::Connection) -> Result<Vec<EncP
         let Some(outcome) = outcome_from_engine_row(result, hw) else {
             continue;
         };
-        let moves_uci = parse_moves_json(&moves_json);
+        let moves_uci: Vec<String> = parse_stored_moves_json(&moves_json)
+            .into_iter()
+            .map(|m| m.uci)
+            .collect();
         if moves_uci.is_empty() {
             continue;
         }
@@ -656,7 +700,10 @@ fn load_enc_position_search_rows(conn: &rusqlite::Connection) -> Result<Vec<EncP
         let Ok(outcome) = std::str::FromStr::from_str(&pgn) else {
             continue;
         };
-        let moves_uci = parse_moves_json(&mj);
+        let moves_uci: Vec<String> = parse_stored_moves_json(&mj)
+            .into_iter()
+            .map(|m| m.uci)
+            .collect();
         if moves_uci.is_empty() {
             continue;
         }

@@ -18,6 +18,7 @@ import useSWRImmutable from "swr/immutable";
 import { match } from "ts-pattern";
 import type { Dirs } from "@/App";
 import AboutModal from "@/components/About";
+import { LoginGate } from "@/components/auth/LoginGate";
 import { SideBar } from "@/components/Sidebar";
 import TopBar from "@/components/TopBar";
 import { activeTabAtom, nativeBarAtom, tabsAtom } from "@/state/atoms";
@@ -352,40 +353,42 @@ function RootLayout() {
   }, [navigate, setTabs, setActiveTab]);
 
   return (
-    <AppShell
-      navbar={{
-        width: "3rem",
-        breakpoint: 0,
-      }}
-      header={
-        isNative ||
-        (import.meta.env.VITE_PLATFORM !== "win32" && import.meta.env.VITE_PLATFORM !== "linux")
-          ? undefined
-          : {
-              height: "2.25rem",
-            }
-      }
-      styles={{
-        main: {
-          height: "100vh",
-          userSelect: "none",
-        },
-      }}
-    >
-      <AboutModal opened={opened} setOpened={setOpened} />
-      {!isNative &&
-        (import.meta.env.VITE_PLATFORM === "win32" ||
-          import.meta.env.VITE_PLATFORM === "linux") && (
-          <AppShell.Header>
-            <TopBar menuActions={menuActions} />
-          </AppShell.Header>
-        )}
-      <AppShell.Navbar>
-        <SideBar />
-      </AppShell.Navbar>
-      <AppShell.Main>
-        <Outlet />
-      </AppShell.Main>
-    </AppShell>
+    <LoginGate>
+      <AppShell
+        navbar={{
+          width: "3rem",
+          breakpoint: 0,
+        }}
+        header={
+          isNative ||
+          (import.meta.env.VITE_PLATFORM !== "win32" && import.meta.env.VITE_PLATFORM !== "linux")
+            ? undefined
+            : {
+                height: "2.25rem",
+              }
+        }
+        styles={{
+          main: {
+            height: "100vh",
+            userSelect: "none",
+          },
+        }}
+      >
+        <AboutModal opened={opened} setOpened={setOpened} />
+        {!isNative &&
+          (import.meta.env.VITE_PLATFORM === "win32" ||
+            import.meta.env.VITE_PLATFORM === "linux") && (
+            <AppShell.Header>
+              <TopBar menuActions={menuActions} />
+            </AppShell.Header>
+          )}
+        <AppShell.Navbar>
+          <SideBar />
+        </AppShell.Navbar>
+        <AppShell.Main>
+          <Outlet />
+        </AppShell.Main>
+      </AppShell>
+    </LoginGate>
   );
 }

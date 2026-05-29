@@ -10,6 +10,9 @@ pub struct ProgressItem {
     pub id: String,
     pub progress: f32,
     pub finished: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[specta(optional)]
+    pub message: Option<String>,
 }
 
 #[derive(Clone, Debug, Serialize, Type, Event)]
@@ -17,6 +20,9 @@ pub struct ProgressEvent {
     pub id: String,
     pub progress: f32,
     pub finished: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[specta(optional)]
+    pub message: Option<String>,
 }
 
 pub type ProgressStore = DashMap<String, ProgressItem>;
@@ -27,11 +33,13 @@ pub fn update_progress(
     id: String,
     progress: f32,
     finished: bool,
+    message: Option<String>,
 ) -> Result<(), Error> {
     let item = ProgressItem {
         id: id.clone(),
         progress,
         finished,
+        message: message.clone(),
     };
 
     store.insert(id.clone(), item.clone());
@@ -40,6 +48,7 @@ pub fn update_progress(
         id: item.id,
         progress: item.progress,
         finished: item.finished,
+        message,
     }
     .emit(app)?;
 

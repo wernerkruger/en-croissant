@@ -6,22 +6,21 @@ import {
   InputWrapper,
   NumberInput,
   SegmentedControl,
-  Select,
   Stack,
   TextInput,
 } from "@mantine/core";
 import { IconCpu, IconUser } from "@tabler/icons-react";
+import { useAtomValue } from "jotai";
 import { useTranslation } from "react-i18next";
-import type { ChesscomBotManifestEntry, GoMode } from "@/bindings";
+import { currentUserAtom, sessionsAtom } from "@/state/atoms";
+import { defaultHumanOpponentName } from "@/utils/session";
+import type { GoMode } from "@/bindings";
 import GoModeInput from "@/components/common/GoModeInput";
 import TimeInput, { type TimeType } from "@/components/common/TimeInput";
 import EngineSettingsForm from "@/components/panels/analysis/EngineSettingsForm";
 import type { TimeControlField } from "@/utils/clock";
 import type { EngineSettings, LocalEngine } from "@/utils/engines";
-import useSWR from "swr";
-import { commands } from "@/bindings";
-import { unwrap } from "@/utils/unwrap";
-import { EnginesSelect } from "./EnginesSelect";
+import { EngineOrBotSelect } from "./EngineOrBotSelect";
 
 export type OpponentSettings =
   | {
@@ -64,21 +63,15 @@ export function OpponentForm({
   setOtherOpponent: React.Dispatch<React.SetStateAction<OpponentSettings>>;
 }) {
   const { t } = useTranslation();
-  const { data: styleBots } = useSWR("chesscom-bots", async () =>
-    unwrap(await commands.listChesscomBotProfiles()),
-  );
-
-  const styleBotOptions = (styleBots ?? []).map((b: ChesscomBotManifestEntry) => ({
-    value: b.id,
-    label: `${b.botUsername} (${b.targetElo})`,
-  }));
+  const sessions = useAtomValue(sessionsAtom);
+  const currentUser = useAtomValue(currentUserAtom);
 
   function updateType(type: "engine" | "human") {
     if (type === "human") {
       setOpponent((prev) => ({
         ...prev,
         type: "human",
-        name: "Player",
+        name: defaultHumanOpponentName(sessions, currentUser),
       }));
     } else {
       setOpponent((prev) => ({
@@ -127,16 +120,7 @@ export function OpponentForm({
       )}
 
       {opponent.type === "engine" && (
-        <EnginesSelect
-          engine={opponent.engine}
-          setEngine={(engine) =>
-            setOpponent((prev) => ({
-              ...prev,
-              engine,
-              engineSettings: engine?.settings || undefined,
-            }))
-          }
-        />
+        <EngineOrBotSelect opponent={opponent} setOpponent={setOpponent} />
       )}
 
       <Divider variant="dashed" label={t("Board.Opponent.TimeSettings")} />
@@ -227,32 +211,6 @@ export function OpponentForm({
           </>
         )}
       </Group>
-
-      {opponent.type === "engine" && styleBotOptions.length > 0 && (
-        <>
-          <Select
-            label={t("Board.Opponent.StyleBot")}
-            description={t("Board.Opponent.StyleBotHint")}
-            placeholder={t("Board.Opponent.StyleBotNone")}
-            data={styleBotOptions}
-            value={opponent.styleBotProfileId ?? null}
-            onChange={(id: string | null) =>
-              setOpponent((prev) => {
-                if (prev.type !== "engine") return prev;
-                const bot = styleBots?.find((b) => b.id === id);
-                return {
-                  ...prev,
-                  styleBotProfileId: id ?? undefined,
-                  limitStrength: !id,
-                  limitElo: bot?.targetElo ?? prev.limitElo,
-                  name: bot?.botUsername,
-                };
-              })
-            }
-            clearable
-          />
-        </>
-      )}
 
       {opponent.type === "engine" && !opponent.styleBotProfileId && (
         <>

@@ -63,3 +63,7 @@ export async function getPuzzlesDir(): Promise<string> {
 export async function getTournamentsDirectory(): Promise<string> {
     return ensureDirectory(await resolve(await appDataDir(), "tournaments"));
 }
+
+export async function getLibraryDir(): Promise<string> {
+    return ensureDirectory(await resolve(await appDataDir(), "library"));
+}

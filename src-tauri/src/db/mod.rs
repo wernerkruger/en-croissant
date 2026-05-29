@@ -1908,6 +1908,9 @@ pub async fn get_players_game_info(
     state: tauri::State<'_, AppState>,
     app: tauri::AppHandle,
 ) -> Result<PlayerGameInfo, Error> {
+    if crate::enc_local_db::is_enc_local_sentinel(&file) {
+        return crate::enc_local_db::enc_local_get_players_game_info(&app, id);
+    }
     let db = &mut get_db_or_create(&state, file.to_str().unwrap(), ConnectionOptions::default())?;
     let timer = Instant::now();
 

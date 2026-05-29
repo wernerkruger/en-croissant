@@ -53,11 +53,15 @@ import {
   gameOpeningBookEnabledAtom,
   gameOpeningBookMaxPlyAtom,
   gameOpeningBookPathAtom,
+  currentUserAtom,
   gamePlayer1SettingsAtom,
   gamePlayer2SettingsAtom,
   gameSameTimeControlAtom,
+  sessionsAtom,
   tabsAtom,
 } from "@/state/atoms";
+import { defaultHumanOpponentName } from "@/utils/session";
+import { engineOpponentElo } from "@/utils/styleBot";
 import {
   tournamentActiveContextAtom,
   tournamentLaunchPayloadAtom,
@@ -65,10 +69,7 @@ import {
   tournamentOneShotEventTitleAtom,
 } from "@/state/tournamentAtoms";
 import { allMatchesPlayed, boardOutcomeToScheduleResult } from "@/utils/tournament";
-import {
-  formatStandingsMessage,
-  persistHumanMatchResult,
-} from "@/utils/tournamentStorage";
+import { formatStandingsMessage, persistHumanMatchResult } from "@/utils/tournamentStorage";
 import { positionFromFen } from "@/utils/chessops";
 import type { GameHeaders } from "@/utils/treeReducer";
 import { unwrap } from "@/utils/unwrap";
@@ -149,6 +150,21 @@ function BoardGame() {
 
   const [player1Settings, setPlayer1Settings] = useAtom(gamePlayer1SettingsAtom);
   const [player2Settings, setPlayer2Settings] = useAtom(gamePlayer2SettingsAtom);
+  const sessions = useAtomValue(sessionsAtom);
+  const currentUser = useAtomValue(currentUserAtom);
+
+  useEffect(() => {
+    const preferred = defaultHumanOpponentName(sessions, currentUser);
+    if (preferred === "Player") return;
+    const syncHumanName = (settings: OpponentSettings): OpponentSettings => {
+      if (settings.type !== "human") return settings;
+      const name = (settings.name ?? "").trim();
+      if (name !== "" && name !== "Player") return settings;
+      return { ...settings, name: preferred };
+    };
+    setPlayer1Settings((p) => syncHumanName(p));
+    setPlayer2Settings((p) => syncHumanName(p));
+  }, [sessions, currentUser, setPlayer1Settings, setPlayer2Settings]);
 
   const store = useContext(TreeStateContext)!;
   const root = useStore(store, (s) => s.root);
@@ -230,7 +246,7 @@ function BoardGame() {
           if (parsed) {
             appendMove({
               payload: parsed,
-              clock: move.clock !== null ? Number(move.clock) : undefined,
+              clock: move.clock !== null ? move.clock : undefined,
             });
           }
         }
@@ -244,7 +260,7 @@ function BoardGame() {
           if (parsed) {
             appendMove({
               payload: parsed,
-              clock: move.clock !== null ? Number(move.clock) : undefined,
+              clock: move.clock !== null ? move.clock : undefined,
             });
           }
         }
@@ -297,6 +313,9 @@ function BoardGame() {
     }
 
     const styleBot = settings.styleBotProfileId;
+    const botElo = styleBot
+      ? Math.min(5000, Math.max(500, Math.round(settings.limitElo ?? 1500)))
+      : null;
     return {
       type: "engine",
       name: settings.name ?? settings.engine?.name ?? "Engine",
@@ -304,8 +323,9 @@ function BoardGame() {
       options: styleBot
         ? [
             ...baseOptions,
-            { name: "MultiPV", value: "5" },
-            { name: "UCI_LimitStrength", value: "false" },
+            { name: "MultiPV", value: "8" },
+            { name: "UCI_LimitStrength", value: "true" },
+            ...(botElo != null ? [{ name: "UCI_Elo", value: String(botElo) }] : []),
           ]
         : [...baseOptions, ...strengthOpts],
       go: settings.timeControl ? null : settings.go,
@@ -448,19 +468,15 @@ function BoardGame() {
       }
 
       if (whiteIsEngine && playerSettings.white.type === "engine") {
-        if (playerSettings.white.limitStrength) {
-          newHeaders.white_elo = Math.min(
-            5000,
-            Math.max(500, Math.round(playerSettings.white.limitElo ?? 1500)),
-          );
+        const elo = engineOpponentElo(playerSettings.white);
+        if (elo != null) {
+          newHeaders.white_elo = elo;
         }
       }
       if (blackIsEngine && playerSettings.black.type === "engine") {
-        if (playerSettings.black.limitStrength) {
-          newHeaders.black_elo = Math.min(
-            5000,
-            Math.max(500, Math.round(playerSettings.black.limitElo ?? 1500)),
-          );
+        const elo = engineOpponentElo(playerSettings.black);
+        if (elo != null) {
+          newHeaders.black_elo = elo;
         }
       }
 
@@ -575,7 +591,7 @@ function BoardGame() {
     [gameId, gameState],
   );
 
-  const pendingMovesRef = useRef<{ uci: string; clock: number | null }[] | null>(null);
+  const pendingMovesRef = useRef<BackendMove[] | null>(null);
   const pendingTimesRef = useRef<{
     white: number | null;
     black: number | null;
@@ -653,8 +669,7 @@ function BoardGame() {
       setResult(outcome);
 
       const tctx = getDefaultStore().get(tournamentActiveContextAtom);
-      const tournamentOutcomeOk =
-        outcome === "1-0" || outcome === "0-1" || outcome === "1/2-1/2";
+      const tournamentOutcomeOk = outcome === "1-0" || outcome === "0-1" || outcome === "1/2-1/2";
       const suppressGameEndToast = !!tctx && tournamentOutcomeOk;
 
       if (tctx) {
@@ -715,7 +730,11 @@ function BoardGame() {
         headerSnapshot.date?.replace(/-/g, ".") ??
         new Date().toISOString().slice(0, 10).replace(/-/g, ".");
 
-      const movesUci = payload.moves.map((m) => m.uci);
+      const storedMoves = payload.moves.map((m) => ({
+        uci: m.uci,
+        whiteTimeMs: m.whiteTime != null ? Number(m.whiteTime) : null,
+        blackTimeMs: m.blackTime != null ? Number(m.blackTime) : null,
+      }));
 
       const mutateEncStats = () => {
         void mutate("encroissant-engine-usernames");
@@ -730,7 +749,8 @@ function BoardGame() {
           return;
         }
 
-        const username = (human.name ?? "").trim();
+        const username =
+          (human.name ?? "").trim() || defaultHumanOpponentName(sessions, currentUser);
         if (!username) {
           return;
         }
@@ -740,9 +760,9 @@ function BoardGame() {
             ? formatTc(playersNow.white)
             : formatTc(playersNow.black);
 
-        const opponentElo = engineSide.limitStrength
-          ? Math.min(5000, Math.max(500, Math.round(engineSide.limitElo ?? 1500)))
-          : null;
+        const engineSettings = engineSide.type === "engine" ? engineSide : null;
+        const styleBotId = engineSettings?.styleBotProfileId;
+        const opponentElo = engineSettings ? engineOpponentElo(engineSettings) : null;
 
         void commands
           .recordEncroissantEngineGame({
@@ -750,10 +770,12 @@ function BoardGame() {
             humanIsWhite: playersNow.white.type === "human",
             outcome,
             opponentElo,
-            limitStrength: engineSide.limitStrength ?? false,
+            limitStrength: Boolean(styleBotId || engineSettings?.limitStrength),
             timeControl,
-            movesUci,
+            moves: storedMoves,
             date: dateStr,
+            opponentName: engineSide.name ?? null,
+            styleBotProfileId: styleBotId ?? null,
           })
           .then((res) => {
             if (res.status === "error") {
@@ -780,7 +802,7 @@ function BoardGame() {
             result: payload.result,
             whiteTimeControl: formatTc(w),
             blackTimeControl: formatTc(b),
-            movesUci,
+            moves: storedMoves,
             date: dateStr,
           })
           .then((res) => {
@@ -805,7 +827,7 @@ function BoardGame() {
       unlistenClock.then((f) => f());
       unlistenGameOver.then((f) => f());
     };
-  }, [gameId, gameState, scheduleUpdate, setGameState, setResult, t]);
+  }, [gameId, gameState, scheduleUpdate, sessions, currentUser, setGameState, setResult, t]);
 
   useEffect(() => {
     if (gameState === "playing" && gameId) {
@@ -920,7 +942,7 @@ function BoardGame() {
 
   return (
     <>
-      <Portal target="#left" style={{ height: "100%" }}>
+      <Portal target="#left" style={{ height: "100%", overflow: "visible" }}>
         <Board
           editingMode={gameState === "settingUp" && editingMode}
           viewOnly={gameState !== "playing" && !editingMode}

@@ -540,6 +540,7 @@ pub async fn analyze_game(
             id.clone(),
             (i as f32 / fens.len() as f32) * 100.0,
             false,
+            None,
         )?;
 
         let mut extra_options = uci_options.clone();
@@ -628,7 +629,7 @@ pub async fn analyze_game(
             }
         }
     }
-    update_progress(&state.progress_state, &app, id.clone(), 100.0, true)?;
+    update_progress(&state.progress_state, &app, id.clone(), 100.0, true, None)?;
     state.analysis_cancel_flags.remove(&id);
     Ok(analysis)
 }

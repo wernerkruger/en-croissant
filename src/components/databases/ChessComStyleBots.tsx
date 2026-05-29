@@ -42,7 +42,7 @@ export function ChessComStyleBots() {
   const [usersText, setUsersText] = useState("");
   const [entries, setEntries] = useState<ChesscomUserEntry[]>([]);
   const [engine, setEngine] = useState<LocalEngine | null>(null);
-  const [maxGames, setMaxGames] = useState(80);
+  const [maxGames, setMaxGames] = useState(150);
   const [forceRestart, setForceRestart] = useState(false);
   const [downloadProgressId, setDownloadProgressId] = useState<string | null>(null);
   const [buildProgressId, setBuildProgressId] = useState<string | null>(null);
@@ -269,19 +269,21 @@ export function ChessComStyleBots() {
         <Stack gap={4}>
           <Progress value={downloadProgress.progress} animated={downloading} />
           <Text fz="sm" c="dimmed">
-            {activePlayerLabel
-              ? t("Databases.ChessComBots.StatusPlayer", {
-                  user: activePlayerLabel,
-                  current: Math.min(
-                    entries.length,
-                    Math.max(1, Math.ceil((downloadProgress.progress / 100) * entries.length)),
-                  ),
-                  total: entries.length,
-                  percent: Math.round(downloadProgress.progress),
-                })
-              : t("Databases.ChessComBots.StatusPercent", {
-                  percent: Math.round(downloadProgress.progress),
-                })}
+            {downloadProgress.message
+              ? `${downloadProgress.message} (${Math.round(downloadProgress.progress)}%)`
+              : activePlayerLabel
+                ? t("Databases.ChessComBots.StatusPlayer", {
+                    user: activePlayerLabel,
+                    current: Math.min(
+                      entries.length,
+                      Math.max(1, Math.ceil((downloadProgress.progress / 100) * entries.length)),
+                    ),
+                    total: entries.length,
+                    percent: Math.round(downloadProgress.progress),
+                  })
+                : t("Databases.ChessComBots.StatusPercent", {
+                    percent: Math.round(downloadProgress.progress),
+                  })}
           </Text>
         </Stack>
       )}
@@ -293,7 +295,7 @@ export function ChessComStyleBots() {
         value={maxGames}
         min={10}
         max={500}
-        onChange={(v) => setMaxGames(typeof v === "number" ? v : 80)}
+        onChange={(v) => setMaxGames(typeof v === "number" ? v : 150)}
       />
 
       <Checkbox
@@ -315,9 +317,11 @@ export function ChessComStyleBots() {
         <Stack gap={4}>
           <Progress value={buildProgress.progress} animated={building} />
           <Text fz="sm" c="dimmed">
-            {t("Databases.ChessComBots.StatusPercent", {
-              percent: Math.round(buildProgress.progress),
-            })}
+            {buildProgress.message
+              ? `${buildProgress.message} (${Math.round(buildProgress.progress)}%)`
+              : t("Databases.ChessComBots.StatusPercent", {
+                  percent: Math.round(buildProgress.progress),
+                })}
           </Text>
         </Stack>
       )}

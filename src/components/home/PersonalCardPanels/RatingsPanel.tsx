@@ -1,5 +1,6 @@
 import { Group, Stack, Text } from "@mantine/core";
 import { useEffect, useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import {
   Area,
   AreaChart,
@@ -21,6 +22,7 @@ import {
 import ResultsChart from "./ResultsChart";
 import TimeControlSelector from "./TimeControlSelector";
 import TimeRangeSlider from "./TimeRangeSlider";
+import { RatingsList } from "./RatingsList";
 import WebsiteAccountSelector from "./WebsiteAccountSelector";
 
 function calculateEarliestDate(dateRange: DateRange, ratingDates: number[]): number {
@@ -50,6 +52,7 @@ function RatingsPanel({
   isDatabase?: boolean;
   encUsernames?: string[];
 }) {
+  const { t } = useTranslation();
   const [dateRange, setDateRange] = useState<string | null>(DateRange.AllTime);
   const [timeControl, setTimeControl] = useState<string | null>(null);
   const [website, setWebsite] = useState<string | null>(null);
@@ -145,6 +148,7 @@ function RatingsPanel({
 
   return (
     <Stack>
+      <RatingsList playerName={playerName} info={info} />
       <Group grow>
         {!isDatabase && (
           <>
@@ -165,6 +169,12 @@ function RatingsPanel({
         )}
       </Group>
       <DateRangeTabs timeRange={dateRange} onTimeRangeChange={setDateRange} />
+
+      {dates.length <= 1 && summary.games > 0 && (
+        <Text pt="sm" size="sm" c="dimmed" ta="center">
+          {t("Home.Personal.RatingsChartHint")}
+        </Text>
+      )}
 
       <Text pt="md" fw="bold" fz="lg" ta="center">
         {summary.games} Games

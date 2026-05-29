@@ -29,6 +29,8 @@ import {
 } from "@/utils/lichess/explorer";
 import { getWinChance, normalizeScore } from "@/utils/score";
 import { genID, type Tab, tabSchema } from "@/utils/tabs";
+import { type Book, bookSchema } from "@/utils/library";
+import { type TrainingTask, trainingTaskSchema } from "@/utils/tasks";
 import { getEnginesDir } from "../utils/directories";
 import type { Session } from "../utils/session";
 import { createAsyncZodStorage, createZodStorage } from "./utils";
@@ -210,6 +212,44 @@ export const pieceSetAtom = atomWithStorage<string>("piece-set", "staunty");
 export const boardImageAtom = atomWithStorage<string>("board-image", "gray.svg");
 export const primaryColorAtom = atomWithStorage<MantineColor>("mantine-primary-color", "blue");
 export const sessionsAtom = atomWithStorage<Session[]>("sessions", []);
+
+// User profiles (local login)
+
+/** The username of the currently logged-in local profile, or null when logged out. */
+export const currentUserAtom = atomWithStorage<string | null>("current-user", null, undefined, {
+    getOnInit: true,
+});
+
+/** All usernames that have previously logged in on this device. */
+export const knownUsersAtom = atomWithStorage<string[]>(
+    "known-users",
+    [],
+    createZodStorage(z.array(z.string()), localStorage),
+    { getOnInit: true },
+);
+
+// Library (PDF reader)
+
+export const libraryBooksAtom = atomWithStorage<Book[]>(
+    "library-books",
+    [],
+    createZodStorage(z.array(bookSchema), localStorage),
+);
+
+/** Map of `${user}::${bookId}` to the last 1-indexed page that was read. */
+export const readingProgressAtom = atomWithStorage<Record<string, number>>(
+    "reading-progress",
+    {},
+    createZodStorage(z.record(z.string(), z.number()), localStorage),
+);
+
+// Training plan (tasks)
+
+export const trainingTasksAtom = atomWithStorage<TrainingTask[]>(
+    "training-tasks",
+    [],
+    createZodStorage(z.array(trainingTaskSchema), localStorage),
+);
 export const nativeBarAtom = atomWithStorage<boolean>("native-bar", false);
 export const telemetryEnabledAtom = atomWithStorage<boolean>("telemetry-enabled", true, undefined, {
     getOnInit: true,
