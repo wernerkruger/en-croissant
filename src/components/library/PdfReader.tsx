@@ -9,13 +9,18 @@ import {
   Stack,
   Text,
   Tooltip,
+  UnstyledButton,
 } from "@mantine/core";
 import {
   IconChess,
   IconChevronLeft,
   IconChevronRight,
+  IconEraser,
+  IconHighlight,
   IconPin,
+  IconPointer,
   IconTrash,
+  IconUnderline,
   IconZoomIn,
   IconZoomOut,
 } from "@tabler/icons-react";
@@ -24,9 +29,17 @@ import { error as logError } from "@tauri-apps/plugin-log";
 import { useAtomValue, useSetAtom } from "jotai";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { pinnedGamesAtom } from "@/state/atoms";
-import type { PinnedGame } from "@/utils/library";
+import { currentUserAtom, pdfAnnotationsAtom, pinnedGamesAtom } from "@/state/atoms";
+import type { PdfAnnotation, PdfAnnotationColor, PdfAnnotationRect, PinnedGame } from "@/utils/library";
+import {
+  PDF_ANNOTATION_COLOR_ORDER,
+  PDF_ANNOTATION_COLORS,
+} from "@/utils/library";
 import { type PDFDocumentProxy, type PDFPageProxy, pdfjsLib } from "@/utils/pdf";
+import { genID } from "@/utils/tabs";
+import classes from "./PdfReader.module.css";
+
+type AnnotateMode = "off" | "highlight" | "underline" | "erase";
 
 type RenderTask = ReturnType<PDFPageProxy["render"]>;
 
@@ -72,6 +85,29 @@ function isCanvasBlank(canvas: HTMLCanvasElement, ctx: CanvasRenderingContext2D)
   }
 }
 
+function selectionToRects(pageEl: HTMLElement): PdfAnnotationRect[] {
+  const selection = window.getSelection();
+  if (!selection || selection.isCollapsed || selection.rangeCount === 0) return [];
+
+  const pageBounds = pageEl.getBoundingClientRect();
+  if (pageBounds.width <= 0 || pageBounds.height <= 0) return [];
+
+  const range = selection.getRangeAt(0);
+  if (!pageEl.contains(range.commonAncestorContainer)) return [];
+
+  const rects: PdfAnnotationRect[] = [];
+  for (const r of Array.from(range.getClientRects())) {
+    if (r.width < 1 || r.height < 1) continue;
+    rects.push({
+      x: (r.left - pageBounds.left) / pageBounds.width,
+      y: (r.top - pageBounds.top) / pageBounds.height,
+      w: r.width / pageBounds.width,
+      h: r.height / pageBounds.height,
+    });
+  }
+  return rects;
+}
+
 export function PdfReader({
   path,
   initialPage,
@@ -94,6 +130,9 @@ export function PdfReader({
   const docRef = useRef<PDFDocumentProxy | null>(null);
   const allPinnedGames = useAtomValue(pinnedGamesAtom);
   const setPinnedGames = useSetAtom(pinnedGamesAtom);
+  const allAnnotations = useAtomValue(pdfAnnotationsAtom);
+  const setAnnotations = useSetAtom(pdfAnnotationsAtom);
+  const currentUser = useAtomValue(currentUserAtom) ?? "";
 
   const [scrollRoot, setScrollRoot] = useState<HTMLDivElement | null>(null);
   const [numPages, setNumPages] = useState(0);
@@ -103,6 +142,8 @@ export function PdfReader({
   const [currentPage, setCurrentPage] = useState(Math.max(1, initialPage));
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [annotateMode, setAnnotateMode] = useState<AnnotateMode>("off");
+  const [annotateColor, setAnnotateColor] = useState<PdfAnnotationColor>("yellow");
 
   const didInitialScroll = useRef(false);
   const visibilityRef = useRef<Map<number, number>>(new Map());
@@ -243,6 +284,36 @@ export function PdfReader({
     ? allPinnedGames.filter((g) => g.bookId === bookId && g.page === currentPage)
     : [];
 
+  const bookAnnotations =
+    bookId && currentUser
+      ? allAnnotations.filter((a) => a.bookId === bookId && a.user === currentUser)
+      : [];
+
+  const addAnnotation = useCallback(
+    (page: number, type: "highlight" | "underline", rects: PdfAnnotationRect[]) => {
+      if (!bookId || !currentUser || rects.length === 0) return;
+      const annotation: PdfAnnotation = {
+        id: genID(),
+        user: currentUser,
+        bookId,
+        page,
+        type,
+        color: annotateColor,
+        rects,
+        createdAt: Date.now(),
+      };
+      setAnnotations((prev) => [...prev, annotation]);
+    },
+    [annotateColor, bookId, currentUser, setAnnotations],
+  );
+
+  const removeAnnotation = useCallback(
+    (id: string) => {
+      setAnnotations((prev) => prev.filter((a) => a.id !== id));
+    },
+    [setAnnotations],
+  );
+
   return (
     <Stack h="100%" gap="xs">
       <Group justify="center" gap="xs" wrap="nowrap">
@@ -353,6 +424,70 @@ export function PdfReader({
             </Menu.Dropdown>
           </Menu>
         )}
+
+        {bookId && (
+          <>
+            <Tooltip label={t("Library.Reader.Annotate.Read", "Read (no annotation)")}>
+              <ActionIcon
+                variant={annotateMode === "off" ? "filled" : "default"}
+                onClick={() => setAnnotateMode("off")}
+                disabled={loading}
+                aria-label={t("Library.Reader.Annotate.Read", "Read (no annotation)")}
+              >
+                <IconPointer size="1rem" />
+              </ActionIcon>
+            </Tooltip>
+            <Tooltip label={t("Library.Reader.Annotate.Highlight", "Highlight text")}>
+              <ActionIcon
+                variant={annotateMode === "highlight" ? "filled" : "default"}
+                color="yellow"
+                onClick={() => setAnnotateMode("highlight")}
+                disabled={loading}
+                aria-label={t("Library.Reader.Annotate.Highlight", "Highlight text")}
+              >
+                <IconHighlight size="1rem" />
+              </ActionIcon>
+            </Tooltip>
+            <Tooltip label={t("Library.Reader.Annotate.Underline", "Underline text")}>
+              <ActionIcon
+                variant={annotateMode === "underline" ? "filled" : "default"}
+                onClick={() => setAnnotateMode("underline")}
+                disabled={loading}
+                aria-label={t("Library.Reader.Annotate.Underline", "Underline text")}
+              >
+                <IconUnderline size="1rem" />
+              </ActionIcon>
+            </Tooltip>
+            <Tooltip label={t("Library.Reader.Annotate.Erase", "Erase your marks")}>
+              <ActionIcon
+                variant={annotateMode === "erase" ? "filled" : "default"}
+                color="red"
+                onClick={() => setAnnotateMode("erase")}
+                disabled={loading}
+                aria-label={t("Library.Reader.Annotate.Erase", "Erase your marks")}
+              >
+                <IconEraser size="1rem" />
+              </ActionIcon>
+            </Tooltip>
+            {(annotateMode === "highlight" || annotateMode === "underline") &&
+              PDF_ANNOTATION_COLOR_ORDER.map((color) => (
+                <Tooltip
+                  key={color}
+                  label={t(`Library.Reader.Annotate.Color.${color}`, PDF_ANNOTATION_COLORS[color].label)}
+                >
+                  <UnstyledButton
+                    className={`${classes.colorSwatch} ${annotateColor === color ? classes.colorSwatchActive : ""}`}
+                    style={{ backgroundColor: PDF_ANNOTATION_COLORS[color].underline }}
+                    onClick={() => setAnnotateColor(color)}
+                    aria-label={t(
+                      `Library.Reader.Annotate.Color.${color}`,
+                      PDF_ANNOTATION_COLORS[color].label,
+                    )}
+                  />
+                </Tooltip>
+              ))}
+          </>
+        )}
       </Group>
 
       <Paper
@@ -388,6 +523,10 @@ export function PdfReader({
                 aspectRatio={aspectRatio}
                 root={scrollRoot}
                 onVisibilityChange={reportVisibility}
+                annotateMode={bookId ? annotateMode : "off"}
+                annotations={bookAnnotations.filter((a) => a.page === pageNumber)}
+                onAddAnnotation={addAnnotation}
+                onRemoveAnnotation={removeAnnotation}
               />
             ))}
           </Stack>
@@ -405,6 +544,10 @@ function PdfPage({
   aspectRatio,
   root,
   onVisibilityChange,
+  annotateMode,
+  annotations,
+  onAddAnnotation,
+  onRemoveAnnotation,
 }: {
   doc: PDFDocumentProxy;
   pageNumber: number;
@@ -413,22 +556,25 @@ function PdfPage({
   aspectRatio: number;
   root: HTMLElement | null;
   onVisibilityChange: (page: number, ratio: number) => void;
+  annotateMode: AnnotateMode;
+  annotations: PdfAnnotation[];
+  onAddAnnotation: (page: number, type: "highlight" | "underline", rects: PdfAnnotationRect[]) => void;
+  onRemoveAnnotation: (id: string) => void;
 }) {
   const { t } = useTranslation();
   const wrapperRef = useRef<HTMLDivElement>(null);
+  const pageBoxRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const textLayerRef = useRef<HTMLDivElement>(null);
   const taskRef = useRef<RenderTask | null>(null);
   const renderedWidthRef = useRef<number>(0);
   const [visible, setVisible] = useState(false);
-  // Whether the canvas currently holds a painted bitmap.
   const [painted, setPainted] = useState(false);
-  // The page's own aspect ratio (height / width); null until first measured.
   const [pageAspect, setPageAspect] = useState<number | null>(null);
   const [renderError, setRenderError] = useState<string | null>(null);
 
-  // Track whether this page is near/within the viewport. A modest margin keeps
-  // only a few pages alive at once, which matters for high-resolution scans
-  // whose decoded source images are very memory-heavy.
+  const selecting = annotateMode === "highlight" || annotateMode === "underline";
+
   useEffect(() => {
     const el = wrapperRef.current;
     if (!el) return;
@@ -448,8 +594,6 @@ function PdfPage({
     };
   }, [root, pageNumber, onVisibilityChange]);
 
-  // Release the (potentially large) canvas bitmap once the page scrolls away,
-  // so memory stays bounded even for big scanned books rendered next to a board.
   useEffect(() => {
     if (visible) return;
     taskRef.current?.cancel?.();
@@ -460,15 +604,11 @@ function PdfPage({
     }
     renderedWidthRef.current = 0;
     setPainted(false);
+    textLayerRef.current?.replaceChildren();
   }, [visible]);
 
-  // Quantize the render width so sub-pixel/tiny layout shifts don't re-trigger
-  // (and cancel) a render. Display sizing still uses the exact width below.
   const renderWidth = width > 0 ? Math.round(width / 8) * 8 : 0;
 
-  // Render the page bitmap at the column's fit-width (in device pixels for
-  // sharpness). Crucially this does NOT depend on `zoom`: zooming is applied as
-  // pure CSS scaling below, so it can never clear or blank the canvas.
   useEffect(() => {
     if (!visible || renderWidth === 0) return;
     if (renderedWidthRef.current === renderWidth) return;
@@ -491,9 +631,6 @@ function PdfPage({
         const dpr = Math.min(window.devicePixelRatio || 1, 2);
         const baseScale = Math.max(0.1, (renderWidth / base.width) * dpr);
 
-        // High-resolution scans can exceed the webview's canvas/memory limits
-        // and silently paint nothing; retry at progressively lower scale until
-        // one produces a non-blank result.
         let lastErr: unknown = null;
         let blankAttempts = 0;
         for (const factor of [1, 0.6, 0.4, 0.25]) {
@@ -513,7 +650,7 @@ function PdfPage({
             if (cancelled) return;
             if (isCanvasBlank(canvas, ctx)) {
               blankAttempts += 1;
-              continue; // try a smaller scale
+              continue;
             }
             renderedWidthRef.current = renderWidth;
             setPainted(true);
@@ -554,6 +691,59 @@ function PdfPage({
   const displayWidth = width > 0 ? width * zoom : 0;
   const displayHeight = displayWidth * aspect;
 
+  // Text layer for selecting text when highlighting or underlining.
+  useEffect(() => {
+    const container = textLayerRef.current;
+    if (!visible || !selecting || displayWidth === 0 || !container) return;
+
+    let cancelled = false;
+    (async () => {
+      try {
+        const page = await doc.getPage(pageNumber);
+        if (cancelled) return;
+        const base = page.getViewport({ scale: 1 });
+        const viewport = page.getViewport({ scale: displayWidth / base.width });
+        const textContent = await page.getTextContent();
+        if (cancelled) return;
+        container.replaceChildren();
+        const textLayer = new pdfjsLib.TextLayer({
+          textContentSource: textContent,
+          container,
+          viewport,
+        });
+        await textLayer.render();
+      } catch (e) {
+        if (!cancelled) {
+          logError(`Failed to render text layer for page ${pageNumber}: ${e}`);
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+      container.replaceChildren();
+    };
+  }, [visible, selecting, displayWidth, doc, pageNumber]);
+
+  // Turn a text selection into a highlight or underline mark.
+  useEffect(() => {
+    const el = pageBoxRef.current;
+    if (!el || !selecting) return;
+
+    const onMouseUp = () => {
+      requestAnimationFrame(() => {
+        if (annotateMode !== "highlight" && annotateMode !== "underline") return;
+        const rects = selectionToRects(el);
+        if (rects.length === 0) return;
+        onAddAnnotation(pageNumber, annotateMode, rects);
+        window.getSelection()?.removeAllRanges();
+      });
+    };
+
+    el.addEventListener("mouseup", onMouseUp);
+    return () => el.removeEventListener("mouseup", onMouseUp);
+  }, [annotateMode, onAddAnnotation, pageNumber, selecting]);
+
   return (
     <div
       ref={wrapperRef}
@@ -563,36 +753,108 @@ function PdfPage({
         justifyContent: "center",
         alignItems: "center",
         minHeight: displayHeight || undefined,
-        position: "relative",
       }}
     >
-      {/* The bitmap is rendered once at fit-width; zoom only changes the CSS box
-          size, so the browser scales the already-painted page. */}
-      <canvas
-        ref={canvasRef}
+      <div
+        ref={pageBoxRef}
         style={{
+          position: "relative",
           width: displayWidth || undefined,
           height: displayHeight || undefined,
-          display: painted ? "block" : "none",
-          backgroundColor: "#fff",
-          boxShadow: "0 1px 6px rgba(0,0,0,0.35)",
         }}
-      />
-      {!painted &&
-        (renderError ? (
-          <Stack align="center" gap={4} px="md" style={{ position: "absolute" }}>
-            <Text c="red" size="xs" ta="center">
-              {t("Library.Reader.PageFailed", "Page {{page}} failed to render", {
-                page: pageNumber,
-              })}
-            </Text>
-            <Text c="dimmed" size="xs" ta="center" style={{ wordBreak: "break-word" }}>
-              {renderError}
-            </Text>
-          </Stack>
-        ) : visible ? (
-          <Loader size="sm" style={{ position: "absolute" }} />
-        ) : null)}
+      >
+        <canvas
+          ref={canvasRef}
+          style={{
+            width: "100%",
+            height: "100%",
+            display: painted ? "block" : "none",
+            backgroundColor: "#fff",
+            boxShadow: "0 1px 6px rgba(0, 0, 0, 0.35)",
+          }}
+        />
+
+        {selecting && painted && (
+          <div ref={textLayerRef} className={classes.textLayer} aria-hidden={false} />
+        )}
+
+        {painted && (
+          <div
+            className={classes.annotationLayer}
+            style={{ pointerEvents: annotateMode === "erase" ? "auto" : "none" }}
+          >
+            {annotations.flatMap((annotation) =>
+              annotation.rects.map((rect, index) => {
+                const palette = PDF_ANNOTATION_COLORS[annotation.color];
+                const key = `${annotation.id}-${index}`;
+                if (annotation.type === "highlight") {
+                  return (
+                    <div
+                      key={key}
+                      title={
+                        annotateMode === "erase"
+                          ? t("Library.Reader.Annotate.EraseHint", "Click to remove")
+                          : undefined
+                      }
+                      onClick={() => {
+                        if (annotateMode === "erase") onRemoveAnnotation(annotation.id);
+                      }}
+                      style={{
+                        position: "absolute",
+                        left: `${rect.x * 100}%`,
+                        top: `${rect.y * 100}%`,
+                        width: `${rect.w * 100}%`,
+                        height: `${rect.h * 100}%`,
+                        backgroundColor: palette.highlight,
+                        mixBlendMode: "multiply",
+                        cursor: annotateMode === "erase" ? "pointer" : undefined,
+                      }}
+                    />
+                  );
+                }
+                return (
+                  <div
+                    key={key}
+                    title={
+                      annotateMode === "erase"
+                        ? t("Library.Reader.Annotate.EraseHint", "Click to remove")
+                        : undefined
+                    }
+                    onClick={() => {
+                      if (annotateMode === "erase") onRemoveAnnotation(annotation.id);
+                    }}
+                    style={{
+                      position: "absolute",
+                      left: `${rect.x * 100}%`,
+                      top: `${(rect.y + rect.h) * 100}%`,
+                      width: `${rect.w * 100}%`,
+                      borderBottom: `2px solid ${palette.underline}`,
+                      transform: "translateY(-1px)",
+                      cursor: annotateMode === "erase" ? "pointer" : undefined,
+                    }}
+                  />
+                );
+              }),
+            )}
+          </div>
+        )}
+
+        {!painted &&
+          (renderError ? (
+            <Stack align="center" gap={4} px="md" style={{ position: "absolute", inset: 0 }}>
+              <Text c="red" size="xs" ta="center">
+                {t("Library.Reader.PageFailed", "Page {{page}} failed to render", {
+                  page: pageNumber,
+                })}
+              </Text>
+              <Text c="dimmed" size="xs" ta="center" style={{ wordBreak: "break-word" }}>
+                {renderError}
+              </Text>
+            </Stack>
+          ) : visible ? (
+            <Loader size="sm" style={{ position: "absolute", inset: 0, margin: "auto" }} />
+          ) : null)}
+      </div>
     </div>
   );
 }

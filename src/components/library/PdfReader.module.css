@@ -1,0 +1,41 @@
+.textLayer {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  line-height: 1;
+  text-size-adjust: none;
+  z-index: 1;
+}
+
+.textLayer :global(span) {
+  color: transparent;
+  position: absolute;
+  white-space: pre;
+  cursor: text;
+  transform-origin: 0 0;
+}
+
+.textLayer :global(::selection) {
+  background: rgba(0, 100, 255, 0.25);
+}
+
+.annotationLayer {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  overflow: hidden;
+}
+
+.colorSwatch {
+  width: 22px;
+  height: 22px;
+  border-radius: 4px;
+  border: 2px solid transparent;
+  cursor: pointer;
+  padding: 0;
+}
+
+.colorSwatchActive {
+  border-color: var(--mantine-color-blue-filled);
+  box-shadow: 0 0 0 1px var(--mantine-color-body);
+}

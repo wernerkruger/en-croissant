@@ -27,6 +27,67 @@ export const pinnedGameSchema = z.object({
 
 export type PinnedGame = z.infer<typeof pinnedGameSchema>;
 
+/** Highlight / underline colors available in the PDF reader. */
+export const pdfAnnotationColorSchema = z.enum([
+    "yellow",
+    "green",
+    "blue",
+    "pink",
+    "orange",
+    "purple",
+]);
+
+export type PdfAnnotationColor = z.infer<typeof pdfAnnotationColorSchema>;
+
+export const pdfAnnotationTypeSchema = z.enum(["highlight", "underline"]);
+
+export type PdfAnnotationType = z.infer<typeof pdfAnnotationTypeSchema>;
+
+/** Normalized rectangle (0–1) relative to the page display box. */
+export const pdfAnnotationRectSchema = z.object({
+    x: z.number(),
+    y: z.number(),
+    w: z.number(),
+    h: z.number(),
+});
+
+export type PdfAnnotationRect = z.infer<typeof pdfAnnotationRectSchema>;
+
+/** A user-created mark on a PDF page (stored locally, keyed by user). */
+export const pdfAnnotationSchema = z.object({
+    id: z.string(),
+    user: z.string(),
+    bookId: z.string(),
+    page: z.number(),
+    type: pdfAnnotationTypeSchema,
+    color: pdfAnnotationColorSchema,
+    rects: z.array(pdfAnnotationRectSchema),
+    createdAt: z.number(),
+});
+
+export type PdfAnnotation = z.infer<typeof pdfAnnotationSchema>;
+
+export const PDF_ANNOTATION_COLORS: Record<
+    PdfAnnotationColor,
+    { label: string; highlight: string; underline: string }
+> = {
+    yellow: { label: "Yellow", highlight: "rgba(255, 235, 59, 0.45)", underline: "#f9a825" },
+    green: { label: "Green", highlight: "rgba(129, 199, 132, 0.45)", underline: "#2e7d32" },
+    blue: { label: "Blue", highlight: "rgba(100, 181, 246, 0.45)", underline: "#1565c0" },
+    pink: { label: "Pink", highlight: "rgba(244, 143, 177, 0.45)", underline: "#c2185b" },
+    orange: { label: "Orange", highlight: "rgba(255, 183, 77, 0.45)", underline: "#ef6c00" },
+    purple: { label: "Purple", highlight: "rgba(186, 104, 200, 0.45)", underline: "#7b1fa2" },
+};
+
+export const PDF_ANNOTATION_COLOR_ORDER: PdfAnnotationColor[] = [
+    "yellow",
+    "green",
+    "blue",
+    "pink",
+    "orange",
+    "purple",
+];
+
 /** SFTP cloud-sync configuration. Stored locally (never committed). */
 export const syncConfigSchema = z.object({
     enabled: z.boolean(),

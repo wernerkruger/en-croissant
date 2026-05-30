@@ -33,6 +33,8 @@ import {
     type Book,
     bookSchema,
     defaultSyncConfig,
+    type PdfAnnotation,
+    pdfAnnotationSchema,
     type PinnedGame,
     pinnedGameSchema,
     type SyncConfig,
@@ -282,6 +284,13 @@ export const pinnedGamesAtom = atomWithStorage<PinnedGame[]>(
     "pinned-games",
     [],
     createZodStorage(z.array(pinnedGameSchema), localStorage),
+);
+
+/** PDF highlight/underline marks, stored per user in each annotation's `user` field. */
+export const pdfAnnotationsAtom = atomWithStorage<PdfAnnotation[]>(
+    "pdf-annotations",
+    [],
+    createZodStorage(z.array(pdfAnnotationSchema), localStorage),
 );
 
 /**
