@@ -641,6 +641,54 @@ async buildChesscomBotProfilesBatch(enginePath: string, maxGamesPerUser: number 
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
 }
+},
+async syncTest(opts: SyncOptions) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("sync_test", { opts }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async syncReadManifest(opts: SyncOptions) : Promise<Result<string | null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("sync_read_manifest", { opts }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async syncWriteManifest(opts: SyncOptions, content: string) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("sync_write_manifest", { opts, content }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async syncListBooks(opts: SyncOptions) : Promise<Result<string[], string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("sync_list_books", { opts }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async syncUploadBook(opts: SyncOptions, localPath: string, remoteName: string) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("sync_upload_book", { opts, localPath, remoteName }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async syncDownloadBook(opts: SyncOptions, remoteName: string, localPath: string) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("sync_download_book", { opts, remoteName, localPath }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
 }
 }
 
@@ -746,6 +794,7 @@ export type QueryResponse<T> = { data: T; count: number | null }
 export type RecordEncroissantEngineGameArgs = { username: string; humanIsWhite: boolean; outcome: string; opponentElo: number | null; limitStrength: boolean; timeControl: string; moves: EncStoredMove[]; date: string; opponentName?: string | null; styleBotProfileId?: string | null }
 export type RecordEncroissantHumanGameArgs = { whiteName: string; blackName: string; result: GameResult; whiteTimeControl: string; blackTimeControl: string; moves: EncStoredMove[]; date: string }
 export type SaveGameMoveReviewArgs = { gameKey: string; payload: string }
+export type SyncOptions = { host: string; port: number; username: string; password: string; remoteDir: string }
 export type Score = { value: ScoreValue; 
 /**
  * The probability of each result (win, draw, loss).

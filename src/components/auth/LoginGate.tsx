@@ -20,6 +20,7 @@ import { useAtom, useSetAtom } from "jotai";
 import { type ReactNode, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { currentUserAtom, knownUsersAtom, sessionUnlockedAtom } from "@/state/atoms";
+import SyncManager from "@/components/SyncManager";
 
 /**
  * Wraps the application and forces the user to pick a local profile before the
@@ -37,7 +38,12 @@ export function LoginGate({ children }: { children: ReactNode }) {
   const hasUser = !!currentUser && currentUser.trim().length > 0;
 
   if (hasUser && sessionUnlocked) {
-    return <>{children}</>;
+    return (
+      <>
+        <SyncManager />
+        {children}
+      </>
+    );
   }
 
   if (hasUser) {

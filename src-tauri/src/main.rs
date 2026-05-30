@@ -21,6 +21,7 @@ mod pgn;
 mod progress;
 mod puzzle;
 mod sound;
+mod sync;
 
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
@@ -209,6 +210,12 @@ fn main() {
             list_chesscom_bot_profiles,
             download_chesscom_rapid_games_batch,
             build_chesscom_bot_profiles_batch,
+            sync::sync_test,
+            sync::sync_read_manifest,
+            sync::sync_write_manifest,
+            sync::sync_list_books,
+            sync::sync_upload_book,
+            sync::sync_download_book,
         ))
         .events(tauri_specta::collect_events!(
             BestMovesPayload,

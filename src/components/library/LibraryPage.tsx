@@ -46,6 +46,7 @@ import { type Book, readingProgressKey, titleFromFileName } from "@/utils/librar
 import { createTab, genID } from "@/utils/tabs";
 import ConfirmModal from "../common/ConfirmModal";
 import { PdfReader } from "./PdfReader";
+import { useOpenPinnedGame } from "./useOpenPinnedGame";
 
 function LibraryPage() {
   const { t } = useTranslation();
@@ -57,6 +58,7 @@ function LibraryPage() {
   const setActiveTab = useSetAtom(activeTabAtom);
   const setStudyBookByTab = useSetAtom(studyBookByTabAtom);
   const navigate = useNavigate();
+  const openPinnedGame = useOpenPinnedGame();
 
   const selected = books.find((b) => b.id === openBookId) ?? null;
   const [uploading, setUploading] = useState(false);
@@ -185,6 +187,8 @@ function LibraryPage() {
             path={selected.path}
             initialPage={lastPage}
             onPageChange={(p) => updateProgress(selected, p)}
+            bookId={selected.id}
+            onOpenPinnedGame={openPinnedGame}
           />
         </Box>
       </Stack>

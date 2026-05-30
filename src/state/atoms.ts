@@ -29,7 +29,15 @@ import {
 } from "@/utils/lichess/explorer";
 import { getWinChance, normalizeScore } from "@/utils/score";
 import { genID, type Tab, tabSchema } from "@/utils/tabs";
-import { type Book, bookSchema } from "@/utils/library";
+import {
+    type Book,
+    bookSchema,
+    defaultSyncConfig,
+    type PinnedGame,
+    pinnedGameSchema,
+    type SyncConfig,
+    syncConfigSchema,
+} from "@/utils/library";
 import { type TrainingTask, trainingTaskSchema } from "@/utils/tasks";
 import { getEnginesDir } from "../utils/directories";
 import type { Session } from "../utils/session";
@@ -264,6 +272,26 @@ export const openBookIdAtom = atomWithStorage<string | null>("open-book-id", nul
 export const studyBookByTabAtom = atomWithStorage<Record<string, string>>(
     "study-book-by-tab",
     {},
+);
+
+/**
+ * Games saved from the analysis board and pinned to a (book, page). Shared
+ * across all local profiles so any reader can open them at that page.
+ */
+export const pinnedGamesAtom = atomWithStorage<PinnedGame[]>(
+    "pinned-games",
+    [],
+    createZodStorage(z.array(pinnedGameSchema), localStorage),
+);
+
+/**
+ * SFTP cloud-sync configuration. Persisted locally only (contains the password
+ * in plain text, like other desktop credentials) and never written to source.
+ */
+export const syncConfigAtom = atomWithStorage<SyncConfig>(
+    "sync-config",
+    defaultSyncConfig,
+    createZodStorage(syncConfigSchema, localStorage),
 );
 
 // Training plan (tasks)

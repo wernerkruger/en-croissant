@@ -17,6 +17,7 @@ import {
   IconBook,
   IconBrush,
   IconChess,
+  IconCloud,
   IconFlag,
   IconFolder,
   IconKeyboard,
@@ -71,6 +72,7 @@ import RepertoireMinGamesSetting from "./RepertoireMinGamesSetting";
 import classes from "./SettingsPage.module.css";
 import SettingsSwitch from "./SettingsSwitch";
 import SoundSelect from "./SoundSelect";
+import SyncSettings from "./SyncSettings";
 import ThemeButton from "./ThemeButton";
 import VolumeSlider from "./VolumeSlider";
 
@@ -831,6 +833,9 @@ export default function Page() {
             <Tabs.Tab value="repertoire" leftSection={<IconBook size="1rem" />}>
               {t("Settings.Repertoire")}
             </Tabs.Tab>
+            <Tabs.Tab value="sync" leftSection={<IconCloud size="1rem" />}>
+              {t("Settings.Sync", "Cloud sync")}
+            </Tabs.Tab>
             <Tabs.Tab value="privacy" leftSection={<IconShield size="1rem" />}>
               {t("Settings.Privacy")}
             </Tabs.Tab>
@@ -942,6 +947,10 @@ export default function Page() {
                     {t("Settings.Repertoire.Desc")}
                   </Text>
                   {renderCategorySettings("repertoire")}
+                </Tabs.Panel>
+
+                <Tabs.Panel value="sync">
+                  <SyncSettings />
                 </Tabs.Panel>
 
                 <Tabs.Panel value="privacy">

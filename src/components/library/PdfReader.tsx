@@ -1,9 +1,31 @@
-import { ActionIcon, Center, Group, Loader, Paper, Stack, Text, Tooltip } from "@mantine/core";
-import { IconChevronLeft, IconChevronRight, IconZoomIn, IconZoomOut } from "@tabler/icons-react";
+import {
+  ActionIcon,
+  Button,
+  Center,
+  Group,
+  Loader,
+  Menu,
+  Paper,
+  Stack,
+  Text,
+  Tooltip,
+} from "@mantine/core";
+import {
+  IconChess,
+  IconChevronLeft,
+  IconChevronRight,
+  IconPin,
+  IconTrash,
+  IconZoomIn,
+  IconZoomOut,
+} from "@tabler/icons-react";
 import { readFile } from "@tauri-apps/plugin-fs";
 import { error as logError } from "@tauri-apps/plugin-log";
+import { useAtomValue, useSetAtom } from "jotai";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { pinnedGamesAtom } from "@/state/atoms";
+import type { PinnedGame } from "@/utils/library";
 import { type PDFDocumentProxy, type PDFPageProxy, pdfjsLib } from "@/utils/pdf";
 
 type RenderTask = ReturnType<PDFPageProxy["render"]>;
@@ -54,13 +76,24 @@ export function PdfReader({
   path,
   initialPage,
   onPageChange,
+  bookId,
+  onOpenPinnedGame,
+  onPinCurrentPage,
 }: {
   path: string;
   initialPage: number;
   onPageChange: (page: number) => void;
+  /** When provided, enables pinned-game controls for this book. */
+  bookId?: string;
+  /** Open a previously pinned game (parent handles tab creation/navigation). */
+  onOpenPinnedGame?: (game: PinnedGame) => void;
+  /** When provided, shows a button to pin the current board game to this page. */
+  onPinCurrentPage?: (page: number) => void;
 }) {
   const { t } = useTranslation();
   const docRef = useRef<PDFDocumentProxy | null>(null);
+  const allPinnedGames = useAtomValue(pinnedGamesAtom);
+  const setPinnedGames = useSetAtom(pinnedGamesAtom);
 
   const [scrollRoot, setScrollRoot] = useState<HTMLDivElement | null>(null);
   const [numPages, setNumPages] = useState(0);
@@ -206,6 +239,9 @@ export function PdfReader({
   );
 
   const pageWidth = Math.max(0, containerWidth - 24);
+  const pagePinnedGames = bookId
+    ? allPinnedGames.filter((g) => g.bookId === bookId && g.page === currentPage)
+    : [];
 
   return (
     <Stack h="100%" gap="xs">
@@ -261,6 +297,62 @@ export function PdfReader({
             <IconZoomIn size="1rem" />
           </ActionIcon>
         </Tooltip>
+
+        {bookId && onPinCurrentPage && (
+          <Tooltip label={t("Library.Reader.PinGame", "Pin current game to this page")}>
+            <ActionIcon
+              variant="default"
+              onClick={() => onPinCurrentPage(currentPage)}
+              disabled={loading}
+              aria-label={t("Library.Reader.PinGame", "Pin current game to this page")}
+            >
+              <IconPin size="1rem" />
+            </ActionIcon>
+          </Tooltip>
+        )}
+
+        {bookId && pagePinnedGames.length > 0 && (
+          <Menu shadow="md" position="bottom-end" withinPortal>
+            <Menu.Target>
+              <Button size="xs" variant="light" leftSection={<IconChess size="0.9rem" />}>
+                {t("Library.Reader.SavedGames", "Games here ({{count}})", {
+                  count: pagePinnedGames.length,
+                })}
+              </Button>
+            </Menu.Target>
+            <Menu.Dropdown>
+              <Menu.Label>
+                {t("Library.Reader.SavedGamesLabel", "Pinned to page {{page}}", {
+                  page: currentPage,
+                })}
+              </Menu.Label>
+              {pagePinnedGames.map((game) => (
+                <Menu.Item
+                  key={game.id}
+                  leftSection={<IconChess size="0.9rem" />}
+                  onClick={() => onOpenPinnedGame?.(game)}
+                  rightSection={
+                    <ActionIcon
+                      component="div"
+                      variant="subtle"
+                      color="red"
+                      size="sm"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setPinnedGames((prev) => prev.filter((g) => g.id !== game.id));
+                      }}
+                      aria-label={t("Common.Delete", "Delete")}
+                    >
+                      <IconTrash size="0.8rem" />
+                    </ActionIcon>
+                  }
+                >
+                  {game.name}
+                </Menu.Item>
+              ))}
+            </Menu.Dropdown>
+          </Menu>
+        )}
       </Group>
 
       <Paper
