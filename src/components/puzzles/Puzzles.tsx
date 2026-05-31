@@ -29,7 +29,7 @@ import {
 } from "@tabler/icons-react";
 import { isNormal, makeSquare, makeUci, parseUci } from "chessops";
 import { parseFen } from "chessops/fen";
-import { useAtom, useSetAtom } from "jotai";
+import { useAtom, useAtomValue, useSetAtom } from "jotai";
 import { useContext, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useStore } from "zustand";
@@ -38,10 +38,13 @@ import {
   activeTabAtom,
   currentPuzzleAtom,
   currentPuzzleTimerAtom,
+  currentUserAtom,
   hidePuzzleRatingAtom,
   jumpToNextPuzzleAtom,
   progressivePuzzlesAtom,
+  puzzleLifetimeStatsAtom,
   puzzleRatingRangeAtom,
+  puzzleSessionStatsAtom,
   puzzleThemeAtom,
   selectedPuzzleDbAtom,
   tabsAtom,
@@ -49,6 +52,14 @@ import {
 } from "@/state/atoms";
 import { positionFromFen } from "@/utils/chessops";
 import { formatThemeLabel, formatTime } from "@/utils/format";
+import {
+  applyLifetimePuzzleResult,
+  applySessionPuzzleResult,
+  emptyPuzzleLifetimeStats,
+  emptyPuzzleSessionStats,
+  puzzleAccuracy,
+  puzzleAvgTimeSeconds,
+} from "@/utils/puzzleStats";
 import { type Completion, getPuzzleDatabases, type Puzzle } from "@/utils/puzzles";
 import { createTab } from "@/utils/tabs";
 import { defaultTree } from "@/utils/treeReducer";
@@ -75,6 +86,10 @@ function Puzzles({ id }: { id: string }) {
     defaultValue: [],
   });
   const [currentPuzzle, setCurrentPuzzle] = useAtom(currentPuzzleAtom);
+  const [sessionStats, setSessionStats] = useAtom(puzzleSessionStatsAtom);
+  const [lifetimeByUser, setLifetimeByUser] = useAtom(puzzleLifetimeStatsAtom);
+  const currentUser = useAtomValue(currentUserAtom) ?? "";
+  const lifetimeStats = lifetimeByUser[currentUser] ?? emptyPuzzleLifetimeStats();
 
   const [puzzleDbs, setPuzzleDbs] = useState<PuzzleDatabaseInfo[]>([]);
   const [selectedDb, setSelectedDb] = useAtom(selectedPuzzleDbAtom);
@@ -120,23 +135,31 @@ function Puzzles({ id }: { id: string }) {
   const [jumpToNextPuzzleImmediately, setJumpToNextPuzzleImmediately] =
     useAtom(jumpToNextPuzzleAtom);
 
-  const wonPuzzles = puzzles.filter((p) => p.completion === "correct");
-  const lostPuzzles = puzzles.filter((p) => p.completion === "incorrect");
+  const sessionAccuracy = puzzleAccuracy(sessionStats);
+  const sessionAvgTime = puzzleAvgTimeSeconds(sessionStats);
+  const lifetimeAccuracy = puzzleAccuracy(lifetimeStats);
+  const lifetimeAvgTime = puzzleAvgTimeSeconds(lifetimeStats);
 
-  const totalCompleted = wonPuzzles.length + lostPuzzles.length;
-  const accuracy =
-    totalCompleted > 0 ? Math.round((wonPuzzles.length / totalCompleted) * 100) : null;
-
-  let currentStreak = 0;
-  for (let i = puzzles.length - 1; i >= 0; i--) {
-    if (puzzles[i].completion === "correct") currentStreak++;
-    else if (puzzles[i].completion === "incorrect") break;
+  function clearSession() {
+    setPuzzles([]);
+    setSessionStats(emptyPuzzleSessionStats());
+    reset();
+    setTimerStart(null);
+    setIsPlayingSolution(false);
   }
 
-  const avgTimeSeconds =
-    wonPuzzles.length > 0
-      ? wonPuzzles.reduce((acc, p) => acc + (p.timeSpent || 0), 0) / wonPuzzles.length / 1000
-      : 0;
+  function recordPuzzleResult(completion: "correct" | "incorrect", timeSpentMs: number) {
+    setSessionStats((prev) => applySessionPuzzleResult(prev, completion, timeSpentMs));
+    if (!currentUser) return;
+    setLifetimeByUser((prev) => ({
+      ...prev,
+      [currentUser]: applyLifetimePuzzleResult(
+        prev[currentUser] ?? emptyPuzzleLifetimeStats(),
+        completion,
+        timeSpentMs,
+      ),
+    }));
+  }
 
   function setPuzzle(puzzle: { fen: string; moves: string[] }) {
     setFen(puzzle.fen);
@@ -199,6 +222,10 @@ function Puzzles({ id }: { id: string }) {
       return [...puzzles];
     });
     setTimerStart(null);
+
+    if (completion === "correct" || completion === "incorrect") {
+      recordPuzzleResult(completion, timeSpent);
+    }
 
     if (selectedDb && puzzle?.id) {
       const res = await commands.getThemesForPuzzle(selectedDb, puzzle.id);
@@ -327,10 +354,7 @@ function Puzzles({ id }: { id: string }) {
                 await commands.deletePuzzleDatabase(selectedDb);
                 setPuzzleDbs((dbs) => dbs.filter((db) => db.path !== selectedDb));
                 setSelectedDb(null);
-                setPuzzles([]);
-                reset();
-                setTimerStart(null);
-                setIsPlayingSolution(false);
+                clearSession();
               }
               setDeleteModalOpened(false);
             }}
@@ -458,7 +482,10 @@ function Puzzles({ id }: { id: string }) {
               </Accordion.Panel>
             </Accordion.Item>
           </Accordion>
-          <Group grow>
+          <Text size="xs" c="dimmed" mb={4}>
+            {t("Puzzle.SessionStats", "This session")}
+          </Text>
+          <Group grow mb="xs">
             <Paper withBorder p="xs">
               <Text size="xs" c="dimmed">
                 {t("Puzzle.Rating")}
@@ -488,9 +515,9 @@ function Puzzles({ id }: { id: string }) {
               <Text
                 fw={700}
                 size="lg"
-                c={accuracy === null ? "dimmed" : accuracy >= 50 ? "teal" : "orange"}
+                c={sessionAccuracy === null ? "dimmed" : sessionAccuracy >= 50 ? "teal" : "orange"}
               >
-                {accuracy !== null ? `${accuracy}%` : "-"}
+                {sessionAccuracy !== null ? `${sessionAccuracy}%` : "-"}
               </Text>
             </Paper>
 
@@ -500,19 +527,81 @@ function Puzzles({ id }: { id: string }) {
               </Text>
               <Group gap={2}>
                 <Text fw={700} size="lg">
-                  {currentStreak}
+                  {sessionStats.streak}
                 </Text>
                 <IconFlame size={20} color="orange" />
               </Group>
             </Paper>
 
-            {trackTime && avgTimeSeconds > 0 && (
+            <Paper withBorder p="xs">
+              <Text size="xs" c="dimmed">
+                {t("Puzzle.BestStreak", "Best streak")}
+              </Text>
+              <Group gap={2}>
+                <Text fw={700} size="lg">
+                  {sessionStats.bestStreak}
+                </Text>
+                <IconFlame size={20} color="orange" />
+              </Group>
+            </Paper>
+
+            {trackTime && sessionAvgTime !== null && (
               <Paper withBorder p="xs">
                 <Text size="xs" c="dimmed">
                   {t("Puzzle.AvgTime")}
                 </Text>
                 <Text fw={700} size="lg">
-                  {avgTimeSeconds.toFixed(1)}s
+                  {sessionAvgTime.toFixed(1)}s
+                </Text>
+              </Paper>
+            )}
+          </Group>
+
+          <Text size="xs" c="dimmed" mb={4}>
+            {t("Puzzle.AllTimeStats", "All time")}
+          </Text>
+          <Group grow>
+            <Paper withBorder p="xs">
+              <Text size="xs" c="dimmed">
+                {t("Puzzle.Solved", "Solved")}
+              </Text>
+              <Text fw={700} size="lg">
+                {lifetimeStats.correct}
+              </Text>
+            </Paper>
+
+            <Paper withBorder p="xs">
+              <Text size="xs" c="dimmed">
+                {t("Puzzle.Accuracy")}
+              </Text>
+              <Text
+                fw={700}
+                size="lg"
+                c={lifetimeAccuracy === null ? "dimmed" : lifetimeAccuracy >= 50 ? "teal" : "orange"}
+              >
+                {lifetimeAccuracy !== null ? `${lifetimeAccuracy}%` : "-"}
+              </Text>
+            </Paper>
+
+            <Paper withBorder p="xs">
+              <Text size="xs" c="dimmed">
+                {t("Puzzle.BestStreak", "Best streak")}
+              </Text>
+              <Group gap={2}>
+                <Text fw={700} size="lg">
+                  {lifetimeStats.bestStreak}
+                </Text>
+                <IconFlame size={20} color="orange" />
+              </Group>
+            </Paper>
+
+            {trackTime && lifetimeAvgTime !== null && (
+              <Paper withBorder p="xs">
+                <Text size="xs" c="dimmed">
+                  {t("Puzzle.AvgTime")}
+                </Text>
+                <Text fw={700} size="lg">
+                  {lifetimeAvgTime.toFixed(1)}s
                 </Text>
               </Paper>
             )}
@@ -571,14 +660,7 @@ function Puzzles({ id }: { id: string }) {
                 </ActionIcon>
               </Tooltip>
               <Tooltip label={t("Puzzle.ClearSession")}>
-                <ActionIcon
-                  onClick={() => {
-                    setPuzzles([]);
-                    reset();
-                    setTimerStart(null);
-                    setIsPlayingSolution(false);
-                  }}
-                >
+                <ActionIcon onClick={clearSession}>
                   <IconX />
                 </ActionIcon>
               </Tooltip>

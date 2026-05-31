@@ -40,6 +40,13 @@ import {
     type SyncConfig,
     syncConfigSchema,
 } from "@/utils/library";
+import {
+    emptyPuzzleLifetimeStats,
+    emptyPuzzleSessionStats,
+    type PuzzleLifetimeStats,
+    type PuzzleSessionStats,
+    puzzleLifetimeStatsSchema,
+} from "@/utils/puzzleStats";
 import { type TrainingTask, trainingTaskSchema } from "@/utils/tasks";
 import { getEnginesDir } from "../utils/directories";
 import type { Session } from "../utils/session";
@@ -446,6 +453,19 @@ export const puzzleRatingRangeAtom = atomWithStorage<[number, number]>(
 );
 
 export const puzzleThemeAtom = atomWithStorage<string | null>("puzzle-theme", null);
+
+const puzzleSessionStatsFamily = atomFamily((_tab: string) =>
+    atom<PuzzleSessionStats>(emptyPuzzleSessionStats()),
+);
+export const puzzleSessionStatsAtom = tabValue(puzzleSessionStatsFamily);
+
+/** Puzzle training totals per local profile, persisted across app restarts. */
+export const puzzleLifetimeStatsAtom = atomWithStorage<Record<string, PuzzleLifetimeStats>>(
+    "puzzle-lifetime-stats",
+    {},
+    createZodStorage(z.record(z.string(), puzzleLifetimeStatsSchema), localStorage),
+    { getOnInit: true },
+);
 
 export const coverageMinGamesAtom = atomWithStorage<number>("coverage-min-games", 50);
 
