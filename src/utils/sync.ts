@@ -10,7 +10,9 @@ import {
     type SyncConfig,
     type SyncManifest,
     syncManifestSchema,
+    titleFromFileName,
 } from "@/utils/library";
+import { genID } from "@/utils/tabs";
 
 export type SyncResult = {
     booksTotal: number;
@@ -29,7 +31,8 @@ function optionsFromConfig(config: SyncConfig): SyncOptions {
     };
 }
 
-function configIsComplete(config: SyncConfig): boolean {
+/** True when host, username, and password are set (required before any sync). */
+export function isSyncConfigComplete(config: SyncConfig): boolean {
     return (
         config.host.trim().length > 0 &&
         config.username.trim().length > 0 &&
@@ -75,7 +78,7 @@ export async function runSync(): Promise<SyncResult> {
     const store = getDefaultStore();
     const config = store.get(syncConfigAtom);
 
-    if (!configIsComplete(config)) {
+    if (!isSyncConfigComplete(config)) {
         throw new Error("Sync is not fully configured (host, username and password are required).");
     }
 
@@ -96,11 +99,33 @@ export async function runSync(): Promise<SyncResult> {
     const localBooks = store.get(libraryBooksAtom);
     const localPins = store.get(pinnedGamesAtom);
 
-    const mergedBooks = mergeById<Book>(localBooks, remote.books, (b) => b.addedAt);
+    let mergedBooks = mergeById<Book>(localBooks, remote.books, (b) => b.addedAt);
     const mergedPins = mergeById<PinnedGame>(localPins, remote.pinnedGames, (p) => p.createdAt);
 
     const remoteFiles = unwrap(await commands.syncListBooks(opts));
     const libDir = await getLibraryDir();
+
+    // PDFs uploaded to the server without manifest entries (e.g. partial sync).
+    const knownFileNames = new Set(
+        mergedBooks.map((b) => b.fileName || `${b.id}.pdf`),
+    );
+    for (const fileName of remoteFiles) {
+        if (knownFileNames.has(fileName) || !fileName.toLowerCase().endsWith(".pdf")) {
+            continue;
+        }
+        const id = genID();
+        mergedBooks = [
+            ...mergedBooks,
+            {
+                id,
+                title: titleFromFileName(fileName),
+                fileName,
+                path: "",
+                addedAt: Date.now(),
+            },
+        ];
+        knownFileNames.add(fileName);
+    }
 
     let downloaded = 0;
     let uploaded = 0;

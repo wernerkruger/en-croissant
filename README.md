@@ -65,6 +65,7 @@ pnpm install
 From the repo root:
 
 ```bash
+source "$HOME/.cargo/env"
 pnpm tauri build
 ```
 

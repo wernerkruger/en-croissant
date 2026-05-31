@@ -39,10 +39,12 @@ import {
   openBookIdAtom,
   readingProgressAtom,
   studyBookByTabAtom,
+  syncConfigAtom,
   tabsAtom,
 } from "@/state/atoms";
 import { getLibraryDir } from "@/utils/directories";
 import { type Book, readingProgressKey, titleFromFileName } from "@/utils/library";
+import { isSyncConfigComplete, runSync } from "@/utils/sync";
 import { createTab, genID } from "@/utils/tabs";
 import ConfirmModal from "../common/ConfirmModal";
 import { PdfReader } from "./PdfReader";
@@ -52,6 +54,7 @@ function LibraryPage() {
   const { t } = useTranslation();
   const [books, setBooks] = useAtom(libraryBooksAtom);
   const [progress, setProgress] = useAtom(readingProgressAtom);
+  const syncConfig = useAtomValue(syncConfigAtom);
   const currentUser = useAtomValue(currentUserAtom) ?? "";
   const [openBookId, setOpenBookId] = useAtom(openBookIdAtom);
   const setTabs = useSetAtom(tabsAtom);
@@ -92,6 +95,10 @@ function LibraryPage() {
         addedAt: Date.now(),
       };
       setBooks((prev) => [book, ...prev]);
+
+      if (syncConfig.enabled && isSyncConfigComplete(syncConfig)) {
+        runSync().catch(() => {});
+      }
     } catch (e) {
       notifications.show({
         title: t("Library.UploadFailed", "Upload failed"),
@@ -101,7 +108,7 @@ function LibraryPage() {
     } finally {
       setUploading(false);
     }
-  }, [setBooks, t]);
+  }, [setBooks, syncConfig, t]);
 
   const requestDelete = useCallback(
     (book: Book) => {
@@ -230,6 +237,12 @@ function LibraryPage() {
               {t(
                 "Library.EmptyHint",
                 "Upload a PDF book or document to start reading. Your progress is saved per profile.",
+              )}
+            </Text>
+            <Text c="dimmed" size="sm" ta="center" maw={400}>
+              {t(
+                "Library.EmptySyncHint",
+                "On a new computer: open Settings → Cloud sync, enter your SFTP password, enable sync, then use Sync now (or restart after login). Books must have been synced from your other machine first.",
               )}
             </Text>
           </Stack>

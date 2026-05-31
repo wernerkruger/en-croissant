@@ -15,7 +15,7 @@ import { useAtom } from "jotai";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { syncConfigAtom } from "@/state/atoms";
-import { runSync, testSync } from "@/utils/sync";
+import { isSyncConfigComplete, runSync, testSync } from "@/utils/sync";
 
 export default function SyncSettings() {
   const { t } = useTranslation();
@@ -93,6 +93,15 @@ export default function SyncSettings() {
           "Books are uploaded to a 'books' folder and pinned games to 'manifest.json' inside your remote folder. On conflict, the most recently changed item wins.",
         )}
       </Alert>
+
+      {config.enabled && !isSyncConfigComplete(config) && (
+        <Alert variant="light" color="yellow" icon={<IconInfoCircle size="1rem" />}>
+          {t(
+            "Settings.Sync.PasswordRequired",
+            "Enter your SFTP password to sync. Credentials are stored only on this computer and are not copied when you install the app elsewhere.",
+          )}
+        </Alert>
+      )}
 
       <Switch
         label={t("Settings.Sync.Enable", "Enable cloud sync")}

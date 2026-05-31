@@ -764,6 +764,8 @@
     "Settings.Sync.Failed": "Sync failed",
     "Settings.Sync.LastSync": "Last sync",
     "Settings.Sync.Never": "never",
+    "Settings.Sync.PasswordRequired": "Enter your SFTP password to sync. Credentials are stored only on this computer and are not copied when you install the app elsewhere.",
+    "Library.EmptySyncHint": "On a new computer: open Settings → Cloud sync, enter your SFTP password, enable sync, then use Sync now (or restart after login). Books must have been synced from your other machine first.",
     "Settings.Privacy.Telemetry": "Anonymous Telemetry",
     "Settings.Privacy.Telemetry.Desc": "Help improve En Croissant by sending anonymous usage data",
     "Settings.Repertoire": "Repertoire",
