@@ -27,7 +27,7 @@ import {
 import { readFile } from "@tauri-apps/plugin-fs";
 import { error as logError } from "@tauri-apps/plugin-log";
 import { useAtomValue, useSetAtom } from "jotai";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { currentUserAtom, pdfAnnotationsAtom, pinnedGamesAtom } from "@/state/atoms";
 import type { PdfAnnotation, PdfAnnotationColor, PdfAnnotationRect, PinnedGame } from "@/utils/library";
@@ -108,6 +108,11 @@ function selectionToRects(pageEl: HTMLElement): PdfAnnotationRect[] {
   return rects;
 }
 
+/** Scroll offset of an element inside a scroll container. */
+function getElementScrollTop(el: HTMLElement, scrollRoot: HTMLElement): number {
+  return el.getBoundingClientRect().top - scrollRoot.getBoundingClientRect().top + scrollRoot.scrollTop;
+}
+
 export function PdfReader({
   path,
   initialPage,
@@ -147,6 +152,12 @@ export function PdfReader({
 
   const didInitialScroll = useRef(false);
   const visibilityRef = useRef<Map<number, number>>(new Map());
+  const visibilityPausedRef = useRef(false);
+  const zoomAnchorRef = useRef<{
+    page: number;
+    offsetFromPageTop: number;
+    oldZoom: number;
+  } | null>(null);
 
   // Keep the scroll container width in sync so pages fit horizontally. The
   // update is debounced so transient layout churn (e.g. opening the analysis
@@ -227,6 +238,7 @@ export function PdfReader({
   }, [currentPage, loading, numPages, onPageChange]);
 
   const reportVisibility = useCallback((page: number, ratio: number) => {
+    if (visibilityPausedRef.current) return;
     if (ratio <= 0) {
       visibilityRef.current.delete(page);
     } else {
@@ -242,6 +254,48 @@ export function PdfReader({
     }
     if (bestRatio > 0) setCurrentPage(bestPage);
   }, []);
+
+  const changeZoom = useCallback(
+    (next: number) => {
+      const clamped = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, next));
+      if (clamped === zoom) return;
+
+      if (scrollRoot) {
+        const el = scrollRoot.querySelector<HTMLElement>(`[data-page="${currentPage}"]`);
+        if (el) {
+          const pageTop = getElementScrollTop(el, scrollRoot);
+          zoomAnchorRef.current = {
+            page: currentPage,
+            offsetFromPageTop: scrollRoot.scrollTop - pageTop,
+            oldZoom: zoom,
+          };
+          visibilityPausedRef.current = true;
+          visibilityRef.current.clear();
+        }
+      }
+
+      setZoom(clamped);
+    },
+    [zoom, scrollRoot, currentPage],
+  );
+
+  // After zoom changes page heights, restore scroll so the same page stays put.
+  useLayoutEffect(() => {
+    const anchor = zoomAnchorRef.current;
+    if (!anchor || !scrollRoot) return;
+    zoomAnchorRef.current = null;
+
+    const el = scrollRoot.querySelector<HTMLElement>(`[data-page="${anchor.page}"]`);
+    if (el) {
+      const scale = zoom / anchor.oldZoom;
+      const pageTop = getElementScrollTop(el, scrollRoot);
+      scrollRoot.scrollTop = pageTop + anchor.offsetFromPageTop * scale;
+    }
+
+    requestAnimationFrame(() => {
+      visibilityPausedRef.current = false;
+    });
+  }, [zoom, scrollRoot]);
 
   const scrollToPage = useCallback(
     (page: number) => {
@@ -348,7 +402,7 @@ export function PdfReader({
         <Tooltip label={t("Library.Reader.ZoomOut", "Zoom out")}>
           <ActionIcon
             variant="default"
-            onClick={() => setZoom((z) => Math.max(MIN_ZOOM, z - 0.2))}
+            onClick={() => changeZoom(zoom - 0.2)}
             disabled={loading}
             aria-label={t("Library.Reader.ZoomOut", "Zoom out")}
           >
@@ -361,7 +415,7 @@ export function PdfReader({
         <Tooltip label={t("Library.Reader.ZoomIn", "Zoom in")}>
           <ActionIcon
             variant="default"
-            onClick={() => setZoom((z) => Math.min(MAX_ZOOM, z + 0.2))}
+            onClick={() => changeZoom(zoom + 0.2)}
             disabled={loading}
             aria-label={t("Library.Reader.ZoomIn", "Zoom in")}
           >
