@@ -260,6 +260,14 @@ export const readingProgressAtom = atomWithStorage<Record<string, number>>(
     createZodStorage(z.record(z.string(), z.number()), localStorage),
 );
 
+/** Per-user display names for library books (local only, not synced). */
+export const bookDisplayTitlesAtom = atomWithStorage<Record<string, string>>(
+    "book-display-titles",
+    {},
+    createZodStorage(z.record(z.string(), z.string()), localStorage),
+    { getOnInit: true },
+);
+
 /**
  * Id of the book currently open in the reader, or null when viewing the library
  * grid. Persisted so navigating away (e.g. to a board) and back keeps the book

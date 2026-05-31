@@ -126,6 +126,21 @@ export function readingProgressKey(user: string, bookId: string): string {
     return `${user}::${bookId}`;
 }
 
+/** Key used to store a per-user display title override for a book. */
+export function bookDisplayTitleKey(user: string, bookId: string): string {
+    return `${user}::${bookId}`;
+}
+
+/** Title shown in the library for this profile (custom override or default). */
+export function getBookDisplayTitle(
+    book: Book,
+    user: string,
+    customTitles: Record<string, string>,
+): string {
+    const custom = customTitles[bookDisplayTitleKey(user, book.id)]?.trim();
+    return custom || book.title;
+}
+
 /** Derive a human readable title from a PDF file name. */
 export function titleFromFileName(fileName: string): string {
     return (

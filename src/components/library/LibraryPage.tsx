@@ -6,10 +6,12 @@ import {
   Card,
   Center,
   Group,
+  Modal,
   ScrollArea,
   SimpleGrid,
   Stack,
   Text,
+  TextInput,
   ThemeIcon,
   Title,
   Tooltip,
@@ -21,6 +23,7 @@ import {
   IconBook,
   IconBook2,
   IconChess,
+  IconPencil,
   IconTrash,
   IconUpload,
 } from "@tabler/icons-react";
@@ -34,6 +37,7 @@ import { useCallback, useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
   activeTabAtom,
+  bookDisplayTitlesAtom,
   currentUserAtom,
   libraryBooksAtom,
   openBookIdAtom,
@@ -48,6 +52,7 @@ import { isSyncConfigComplete, runSync } from "@/utils/sync";
 import { createTab, genID } from "@/utils/tabs";
 import ConfirmModal from "../common/ConfirmModal";
 import { PdfReader } from "./PdfReader";
+import { useBookDisplayTitles, useSetBookDisplayTitle } from "./useBookDisplayTitle";
 import { useOpenPinnedGame } from "./useOpenPinnedGame";
 
 function LibraryPage() {
@@ -64,9 +69,15 @@ function LibraryPage() {
   const openPinnedGame = useOpenPinnedGame();
 
   const selected = books.find((b) => b.id === openBookId) ?? null;
+  const { titleFor } = useBookDisplayTitles();
+  const setBookDisplayTitle = useSetBookDisplayTitle();
+  const [, setCustomTitles] = useAtom(bookDisplayTitlesAtom);
   const [uploading, setUploading] = useState(false);
   const [pendingDelete, setPendingDelete] = useState<Book | null>(null);
+  const [renameBook, setRenameBook] = useState<Book | null>(null);
+  const [renameValue, setRenameValue] = useState("");
   const [deleteModal, toggleDeleteModal] = useToggle();
+  const [renameModal, toggleRenameModal] = useToggle();
 
   const handleUpload = useCallback(async () => {
     const picked = await open({
@@ -118,6 +129,25 @@ function LibraryPage() {
     [toggleDeleteModal],
   );
 
+  const openRename = useCallback(
+    (book: Book) => {
+      setRenameBook(book);
+      setRenameValue(titleFor(book));
+      toggleRenameModal(true);
+    },
+    [titleFor, toggleRenameModal],
+  );
+
+  const confirmRename = useCallback(() => {
+    if (!renameBook) return;
+    const trimmed = renameValue.trim();
+    if (!trimmed) return;
+    setBookDisplayTitle(renameBook, trimmed);
+    setRenameBook(null);
+    setRenameValue("");
+    toggleRenameModal(false);
+  }, [renameBook, renameValue, setBookDisplayTitle, toggleRenameModal]);
+
   const confirmDelete = useCallback(async () => {
     const book = pendingDelete;
     if (!book) return;
@@ -130,22 +160,32 @@ function LibraryPage() {
       }
       return next;
     });
+    setCustomTitles((prev) => {
+      const prefix = `::${book.id}`;
+      const hasEntry = Object.keys(prev).some((k) => k.endsWith(prefix));
+      if (!hasEntry) return prev;
+      const next = { ...prev };
+      for (const key of Object.keys(next)) {
+        if (key.endsWith(prefix)) delete next[key];
+      }
+      return next;
+    });
     if (openBookId === book.id) setOpenBookId(null);
     setPendingDelete(null);
     toggleDeleteModal();
-  }, [pendingDelete, openBookId, setOpenBookId, setBooks, setProgress, toggleDeleteModal]);
+  }, [pendingDelete, openBookId, setOpenBookId, setBooks, setProgress, setCustomTitles, toggleDeleteModal]);
 
   const openInAnalysis = useCallback(
     async (book: Book) => {
       const tabId = await createTab({
-        tab: { name: book.title, type: "study" },
+        tab: { name: titleFor(book), type: "study" },
         setTabs,
         setActiveTab,
       });
       setStudyBookByTab((prev) => ({ ...prev, [tabId]: book.id }));
       navigate({ to: "/" });
     },
-    [setStudyBookByTab, setTabs, setActiveTab, navigate],
+    [titleFor, setStudyBookByTab, setTabs, setActiveTab, navigate],
   );
 
   const updateProgress = useCallback(
@@ -163,6 +203,31 @@ function LibraryPage() {
     const lastPage = progress[readingProgressKey(currentUser, selected.id)] ?? 1;
     return (
       <Stack h="100%" p="md" gap="sm">
+        <Modal
+          opened={renameModal}
+          onClose={() => toggleRenameModal(false)}
+          title={t("Library.RenameTitle", "Rename book")}
+        >
+          <Stack>
+            <TextInput
+              label={t("Library.RenameLabel", "Display name")}
+              value={renameValue}
+              onChange={(e) => setRenameValue(e.currentTarget.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") confirmRename();
+              }}
+              autoFocus
+            />
+            <Group justify="flex-end">
+              <Button variant="default" onClick={() => toggleRenameModal(false)}>
+                {t("Common.Cancel", "Cancel")}
+              </Button>
+              <Button onClick={confirmRename} disabled={!renameValue.trim()}>
+                {t("Common.Save", "Save")}
+              </Button>
+            </Group>
+          </Stack>
+        </Modal>
         <Group gap="sm" justify="space-between" wrap="nowrap">
           <Group gap="sm" wrap="nowrap" style={{ minWidth: 0 }}>
             <Tooltip label={t("Library.BackToLibrary", "Back to library")}>
@@ -175,9 +240,18 @@ function LibraryPage() {
                 <IconArrowLeft size="1.1rem" />
               </ActionIcon>
             </Tooltip>
-            <Title order={4} lineClamp={1}>
-              {selected.title}
+            <Title order={4} lineClamp={1} style={{ flex: 1, minWidth: 0 }}>
+              {titleFor(selected)}
             </Title>
+            <Tooltip label={t("Library.Rename", "Rename")}>
+              <ActionIcon
+                variant="subtle"
+                onClick={() => openRename(selected)}
+                aria-label={t("Library.Rename", "Rename")}
+              >
+                <IconPencil size="1rem" />
+              </ActionIcon>
+            </Tooltip>
           </Group>
           <Button
             variant="default"
@@ -207,12 +281,42 @@ function LibraryPage() {
       <ConfirmModal
         title={t("Library.Delete.Title", "Remove book")}
         description={t("Library.Delete.Message", 'Remove "{{title}}" from your library?', {
-          title: pendingDelete?.title ?? "",
+          title: pendingDelete ? titleFor(pendingDelete) : "",
         })}
         opened={deleteModal}
         onClose={toggleDeleteModal}
         onConfirm={confirmDelete}
       />
+
+      <Modal
+        opened={renameModal}
+        onClose={() => toggleRenameModal(false)}
+        title={t("Library.RenameTitle", "Rename book")}
+      >
+        <Stack>
+          <TextInput
+            label={t("Library.RenameLabel", "Display name")}
+            description={t(
+              "Library.RenameHint",
+              "This name is saved on this computer for your profile only.",
+            )}
+            value={renameValue}
+            onChange={(e) => setRenameValue(e.currentTarget.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") confirmRename();
+            }}
+            autoFocus
+          />
+          <Group justify="flex-end">
+            <Button variant="default" onClick={() => toggleRenameModal(false)}>
+              {t("Common.Cancel", "Cancel")}
+            </Button>
+            <Button onClick={confirmRename} disabled={!renameValue.trim()}>
+              {t("Common.Save", "Save")}
+            </Button>
+          </Group>
+        </Stack>
+      </Modal>
 
       <Group justify="space-between" align="center">
         <Group gap="sm" align="center">
@@ -252,6 +356,7 @@ function LibraryPage() {
           <SimpleGrid cols={{ base: 2, sm: 3, md: 4, lg: 5 }} spacing="md">
             {books.map((book) => {
               const lastPage = progress[readingProgressKey(currentUser, book.id)];
+              const displayTitle = titleFor(book);
               return (
                 <Card
                   key={book.id}
@@ -272,8 +377,8 @@ function LibraryPage() {
                     </ThemeIcon>
                   </Card.Section>
                   <Stack gap={6} mt="sm">
-                    <Text fw={600} lineClamp={2} title={book.title}>
-                      {book.title}
+                    <Text fw={600} lineClamp={2} title={displayTitle}>
+                      {displayTitle}
                     </Text>
                     <Group justify="space-between" align="center">
                       {lastPage ? (
@@ -285,19 +390,33 @@ function LibraryPage() {
                           {t("Library.Unread", "Unread")}
                         </Badge>
                       )}
-                      <Tooltip label={t("Common.Delete", "Delete")}>
-                        <ActionIcon
-                          variant="subtle"
-                          color="red"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            requestDelete(book);
-                          }}
-                          aria-label={t("Common.Delete", "Delete")}
-                        >
-                          <IconTrash size="1rem" />
-                        </ActionIcon>
-                      </Tooltip>
+                      <Group gap={4}>
+                        <Tooltip label={t("Library.Rename", "Rename")}>
+                          <ActionIcon
+                            variant="subtle"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              openRename(book);
+                            }}
+                            aria-label={t("Library.Rename", "Rename")}
+                          >
+                            <IconPencil size="1rem" />
+                          </ActionIcon>
+                        </Tooltip>
+                        <Tooltip label={t("Common.Delete", "Delete")}>
+                          <ActionIcon
+                            variant="subtle"
+                            color="red"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              requestDelete(book);
+                            }}
+                            aria-label={t("Common.Delete", "Delete")}
+                          >
+                            <IconTrash size="1rem" />
+                          </ActionIcon>
+                        </Tooltip>
+                      </Group>
                     </Group>
                   </Stack>
                 </Card>

@@ -153,23 +153,53 @@ export function PdfReader({
   const didInitialScroll = useRef(false);
   const visibilityRef = useRef<Map<number, number>>(new Map());
   const visibilityPausedRef = useRef(false);
-  const zoomAnchorRef = useRef<{
+  const currentPageRef = useRef(currentPage);
+  const zoomRef = useRef(zoom);
+  const containerWidthRef = useRef(containerWidth);
+  currentPageRef.current = currentPage;
+  zoomRef.current = zoom;
+  containerWidthRef.current = containerWidth;
+
+  /** Keeps the same page anchored when zoom or container width changes layout. */
+  const scrollAnchorRef = useRef<{
     page: number;
     offsetFromPageTop: number;
-    oldZoom: number;
+    oldDisplayWidth: number;
   } | null>(null);
 
-  // Keep the scroll container width in sync so pages fit horizontally. The
-  // update is debounced so transient layout churn (e.g. opening the analysis
-  // board / resizing the split) doesn't repeatedly cancel in-flight renders.
+  // Keep the scroll container width in sync so pages fit horizontally. Visibility
+  // tracking is paused during resize so IntersectionObserver churn doesn't jump
+  // the current page; scroll is re-anchored once width settles.
   useEffect(() => {
     if (!scrollRoot) return;
-    const update = () => setContainerWidth(Math.round(scrollRoot.clientWidth));
-    update();
+    const applyWidth = (width: number) => {
+      const rounded = Math.round(width);
+      if (rounded === containerWidthRef.current) return;
+
+      const page = currentPageRef.current;
+      const el = scrollRoot.querySelector<HTMLElement>(`[data-page="${page}"]`);
+      if (el && containerWidthRef.current > 0) {
+        const pageTop = getElementScrollTop(el, scrollRoot);
+        const oldPageWidth = Math.max(0, containerWidthRef.current - 24);
+        scrollAnchorRef.current = {
+          page,
+          offsetFromPageTop: scrollRoot.scrollTop - pageTop,
+          oldDisplayWidth: oldPageWidth * zoomRef.current,
+        };
+      }
+
+      containerWidthRef.current = rounded;
+      setContainerWidth(rounded);
+    };
+
+    applyWidth(scrollRoot.clientWidth);
+
     let timeout: ReturnType<typeof setTimeout> | undefined;
     const observer = new ResizeObserver(() => {
+      visibilityPausedRef.current = true;
+      visibilityRef.current.clear();
       if (timeout) clearTimeout(timeout);
-      timeout = setTimeout(update, 150);
+      timeout = setTimeout(() => applyWidth(scrollRoot.clientWidth), 150);
     });
     observer.observe(scrollRoot);
     return () => {
@@ -264,10 +294,10 @@ export function PdfReader({
         const el = scrollRoot.querySelector<HTMLElement>(`[data-page="${currentPage}"]`);
         if (el) {
           const pageTop = getElementScrollTop(el, scrollRoot);
-          zoomAnchorRef.current = {
+          scrollAnchorRef.current = {
             page: currentPage,
             offsetFromPageTop: scrollRoot.scrollTop - pageTop,
-            oldZoom: zoom,
+            oldDisplayWidth: Math.max(0, containerWidth - 24) * zoom,
           };
           visibilityPausedRef.current = true;
           visibilityRef.current.clear();
@@ -276,18 +306,19 @@ export function PdfReader({
 
       setZoom(clamped);
     },
-    [zoom, scrollRoot, currentPage],
+    [zoom, scrollRoot, currentPage, containerWidth],
   );
 
-  // After zoom changes page heights, restore scroll so the same page stays put.
+  // After zoom or width changes page heights, restore scroll so the same page stays put.
   useLayoutEffect(() => {
-    const anchor = zoomAnchorRef.current;
+    const anchor = scrollAnchorRef.current;
     if (!anchor || !scrollRoot) return;
-    zoomAnchorRef.current = null;
+    scrollAnchorRef.current = null;
 
+    const newDisplayWidth = Math.max(0, containerWidth - 24) * zoom;
     const el = scrollRoot.querySelector<HTMLElement>(`[data-page="${anchor.page}"]`);
-    if (el) {
-      const scale = zoom / anchor.oldZoom;
+    if (el && anchor.oldDisplayWidth > 0 && newDisplayWidth > 0) {
+      const scale = newDisplayWidth / anchor.oldDisplayWidth;
       const pageTop = getElementScrollTop(el, scrollRoot);
       scrollRoot.scrollTop = pageTop + anchor.offsetFromPageTop * scale;
     }
@@ -295,7 +326,7 @@ export function PdfReader({
     requestAnimationFrame(() => {
       visibilityPausedRef.current = false;
     });
-  }, [zoom, scrollRoot]);
+  }, [zoom, containerWidth, scrollRoot]);
 
   const scrollToPage = useCallback(
     (page: number) => {
