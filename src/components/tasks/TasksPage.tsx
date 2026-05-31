@@ -31,6 +31,71 @@ import { currentUserAtom, trainingTasksAtom } from "@/state/atoms";
 import { genID } from "@/utils/tabs";
 import { toDayKey, type TrainingTask } from "@/utils/tasks";
 
+function sortTasks(a: TrainingTask, b: TrainingTask) {
+  return Number(a.completed) - Number(b.completed) || a.createdAt - b.createdAt;
+}
+
+function sortOverdueTasks(a: TrainingTask, b: TrainingTask) {
+  return a.dueDate.localeCompare(b.dueDate) || a.createdAt - b.createdAt;
+}
+
+function TaskCard({
+  task,
+  onToggle,
+  onDelete,
+  dueLabel,
+}: {
+  task: TrainingTask;
+  onToggle: (id: string, completed: boolean) => void;
+  onDelete: (id: string) => void;
+  dueLabel?: string;
+}) {
+  const { t } = useTranslation();
+
+  return (
+    <Card withBorder radius="sm" padding="sm">
+      <Group align="flex-start" justify="space-between" wrap="nowrap">
+        <Group align="flex-start" wrap="nowrap" gap="sm">
+          <Checkbox
+            mt={2}
+            checked={task.completed}
+            onChange={(e) => onToggle(task.id, e.currentTarget.checked)}
+          />
+          <Stack gap={2}>
+            <Text
+              fw={500}
+              td={task.completed ? "line-through" : undefined}
+              c={task.completed ? "dimmed" : undefined}
+            >
+              {task.title}
+            </Text>
+            {task.description && (
+              <Text size="sm" c="dimmed">
+                {task.description}
+              </Text>
+            )}
+            {dueLabel && (
+              <Text size="xs" c="red">
+                {dueLabel}
+              </Text>
+            )}
+          </Stack>
+        </Group>
+        <Tooltip label={t("Common.Delete", "Delete")}>
+          <ActionIcon
+            variant="subtle"
+            color="red"
+            onClick={() => onDelete(task.id)}
+            aria-label={t("Common.Delete", "Delete")}
+          >
+            <IconTrash size="1rem" />
+          </ActionIcon>
+        </Tooltip>
+      </Group>
+    </Card>
+  );
+}
+
 function TasksPage() {
   const { t } = useTranslation();
   const [tasks, setTasks] = useAtom(trainingTasksAtom);
@@ -41,16 +106,30 @@ function TasksPage() {
   const [dueDate, setDueDate] = useState<string | null>(toDayKey(new Date()));
   const [selectedDay, setSelectedDay] = useState<string | null>(toDayKey(new Date()));
 
+  const todayKey = toDayKey(new Date());
+  const viewingToday = selectedDay === todayKey;
+
   const myTasks = useMemo(
     () => tasks.filter((task) => task.user === currentUser),
     [tasks, currentUser],
   );
 
+  const todayTasks = useMemo(
+    () => myTasks.filter((task) => task.dueDate === todayKey).sort(sortTasks),
+    [myTasks, todayKey],
+  );
+
+  const overdueTasks = useMemo(
+    () =>
+      myTasks
+        .filter((task) => !task.completed && task.dueDate < todayKey)
+        .sort(sortOverdueTasks),
+    [myTasks, todayKey],
+  );
+
   const tasksForDay = useMemo(() => {
     if (!selectedDay) return [];
-    return myTasks
-      .filter((task) => task.dueDate === selectedDay)
-      .sort((a, b) => Number(a.completed) - Number(b.completed) || a.createdAt - b.createdAt);
+    return myTasks.filter((task) => task.dueDate === selectedDay).sort(sortTasks);
   }, [myTasks, selectedDay]);
 
   const daysWithTasks = useMemo(() => {
@@ -99,6 +178,15 @@ function TasksPage() {
   const dayLabel = selectedDay
     ? dayjs(selectedDay).format("dddd, MMMM D, YYYY")
     : t("Tasks.NoDaySelected", "No day selected");
+
+  const todayLabel = dayjs(todayKey).format("dddd, MMMM D, YYYY");
+
+  const listDoneCount = viewingToday
+    ? todayTasks.filter((task) => task.completed).length
+    : tasksForDay.filter((task) => task.completed).length;
+  const listTotalCount = viewingToday
+    ? todayTasks.length + overdueTasks.length
+    : tasksForDay.length;
 
   return (
     <Stack h="100%" p="md" gap="md">
@@ -203,17 +291,62 @@ function TasksPage() {
               </Group>
               <Badge variant="light">
                 {t("Tasks.DoneCount", "{{done}}/{{total}} done", {
-                  done: tasksForDay.filter((task) => task.completed).length,
-                  total: tasksForDay.length,
+                  done: listDoneCount,
+                  total: listTotalCount,
                 })}
               </Badge>
             </Group>
             <Text c="dimmed" size="sm">
-              {dayLabel}
+              {viewingToday ? todayLabel : dayLabel}
             </Text>
 
             <ScrollArea flex={1}>
-              {tasksForDay.length === 0 ? (
+              {viewingToday ? (
+                <Stack gap="lg">
+                  <Stack gap="xs">
+                    <Text fw={600} size="sm">
+                      {t("Tasks.Today", "Today")}
+                    </Text>
+                    {todayTasks.length === 0 ? (
+                      <Text c="dimmed" size="sm">
+                        {t("Tasks.NoneForDay", "No tasks for this day")}
+                      </Text>
+                    ) : (
+                      todayTasks.map((task) => (
+                        <TaskCard
+                          key={task.id}
+                          task={task}
+                          onToggle={toggleTask}
+                          onDelete={deleteTask}
+                        />
+                      ))
+                    )}
+                  </Stack>
+
+                  <Stack gap="xs">
+                    <Text fw={600} size="sm" c="red">
+                      {t("Tasks.Overdue", "Overdue")}
+                    </Text>
+                    {overdueTasks.length === 0 ? (
+                      <Text c="dimmed" size="sm">
+                        {t("Tasks.NoneOverdue", "No overdue tasks")}
+                      </Text>
+                    ) : (
+                      overdueTasks.map((task) => (
+                        <TaskCard
+                          key={task.id}
+                          task={task}
+                          onToggle={toggleTask}
+                          onDelete={deleteTask}
+                          dueLabel={t("Tasks.DueOn", "Due {{date}}", {
+                            date: dayjs(task.dueDate).format("MMM D, YYYY"),
+                          })}
+                        />
+                      ))
+                    )}
+                  </Stack>
+                </Stack>
+              ) : tasksForDay.length === 0 ? (
                 <Stack align="center" gap="sm" pt="xl">
                   <ThemeIcon size={64} radius="100%" variant="light" color="gray">
                     <IconChecklist size={32} />
@@ -223,41 +356,12 @@ function TasksPage() {
               ) : (
                 <Stack gap="xs">
                   {tasksForDay.map((task) => (
-                    <Card key={task.id} withBorder radius="sm" padding="sm">
-                      <Group align="flex-start" justify="space-between" wrap="nowrap">
-                        <Group align="flex-start" wrap="nowrap" gap="sm">
-                          <Checkbox
-                            mt={2}
-                            checked={task.completed}
-                            onChange={(e) => toggleTask(task.id, e.currentTarget.checked)}
-                          />
-                          <Stack gap={2}>
-                            <Text
-                              fw={500}
-                              td={task.completed ? "line-through" : undefined}
-                              c={task.completed ? "dimmed" : undefined}
-                            >
-                              {task.title}
-                            </Text>
-                            {task.description && (
-                              <Text size="sm" c="dimmed">
-                                {task.description}
-                              </Text>
-                            )}
-                          </Stack>
-                        </Group>
-                        <Tooltip label={t("Common.Delete", "Delete")}>
-                          <ActionIcon
-                            variant="subtle"
-                            color="red"
-                            onClick={() => deleteTask(task.id)}
-                            aria-label={t("Common.Delete", "Delete")}
-                          >
-                            <IconTrash size="1rem" />
-                          </ActionIcon>
-                        </Tooltip>
-                      </Group>
-                    </Card>
+                    <TaskCard
+                      key={task.id}
+                      task={task}
+                      onToggle={toggleTask}
+                      onDelete={deleteTask}
+                    />
                   ))}
                 </Stack>
               )}
