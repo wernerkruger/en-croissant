@@ -41,6 +41,55 @@ impl client::Handler for Client {
     }
 }
 
+async fn authenticate(
+    handle: &mut client::Handle<Client>,
+    username: &str,
+    password: &str,
+) -> Result<(), String> {
+    use client::KeyboardInteractiveAuthResponse;
+
+    if handle
+        .authenticate_password(username, password)
+        .await
+        .map_err(|e| format!("Authentication error: {e}"))?
+    {
+        return Ok(());
+    }
+
+    // Some hosts accept the password only via keyboard-interactive prompts.
+    let mut resp = handle
+        .authenticate_keyboard_interactive_start(username, None)
+        .await
+        .map_err(|e| format!("Authentication error: {e}"))?;
+
+    loop {
+        match resp {
+            KeyboardInteractiveAuthResponse::Success => return Ok(()),
+            KeyboardInteractiveAuthResponse::Failure => {
+                return Err(
+                    "Authentication failed: wrong username or password (SFTP uses port 22, not FTP port 21)".to_string(),
+                );
+            }
+            KeyboardInteractiveAuthResponse::InfoRequest { prompts, .. } => {
+                let responses: Vec<String> = prompts
+                    .iter()
+                    .map(|prompt| {
+                        if prompt.echo {
+                            username.to_string()
+                        } else {
+                            password.to_string()
+                        }
+                    })
+                    .collect();
+                resp = handle
+                    .authenticate_keyboard_interactive_respond(responses)
+                    .await
+                    .map_err(|e| format!("Authentication error: {e}"))?;
+            }
+        }
+    }
+}
+
 async fn connect(opts: &SyncOptions) -> Result<(client::Handle<Client>, SftpSession), String> {
     let config = Arc::new(client::Config {
         inactivity_timeout: Some(Duration::from_secs(60)),
@@ -51,14 +100,7 @@ async fn connect(opts: &SyncOptions) -> Result<(client::Handle<Client>, SftpSess
         .await
         .map_err(|e| format!("Could not connect to {}:{} ({e})", opts.host, opts.port))?;
 
-    let authenticated = handle
-        .authenticate_password(&opts.username, &opts.password)
-        .await
-        .map_err(|e| format!("Authentication error: {e}"))?;
-
-    if !authenticated {
-        return Err("Authentication failed: wrong username or password".to_string());
-    }
+    authenticate(&mut handle, &opts.username, &opts.password).await?;
 
     let channel = handle
         .channel_open_session()
@@ -77,9 +119,14 @@ async fn connect(opts: &SyncOptions) -> Result<(client::Handle<Client>, SftpSess
     Ok((handle, sftp))
 }
 
-/// Create a directory, ignoring an error if it already exists.
-async fn ensure_dir(sftp: &SftpSession, path: &str) {
-    let _ = sftp.create_dir(path).await;
+/// Create a directory if it does not exist yet.
+async fn ensure_dir(sftp: &SftpSession, path: &str) -> Result<(), String> {
+    if sftp.read_dir(path).await.is_ok() {
+        return Ok(());
+    }
+    sftp.create_dir(path)
+        .await
+        .map_err(|e| format!("Could not create remote folder {path}: {e}"))
 }
 
 fn books_dir(opts: &SyncOptions) -> String {
@@ -96,8 +143,8 @@ fn manifest_path(opts: &SyncOptions) -> String {
 #[specta::specta]
 pub async fn sync_test(opts: SyncOptions) -> Result<(), String> {
     let (_handle, sftp) = connect(&opts).await?;
-    ensure_dir(&sftp, opts.remote_dir.trim_end_matches('/')).await;
-    ensure_dir(&sftp, &books_dir(&opts)).await;
+    ensure_dir(&sftp, opts.remote_dir.trim_end_matches('/')).await?;
+    ensure_dir(&sftp, &books_dir(&opts)).await?;
     Ok(())
 }
 
@@ -125,7 +172,7 @@ pub async fn sync_read_manifest(opts: SyncOptions) -> Result<Option<String>, Str
 #[specta::specta]
 pub async fn sync_write_manifest(opts: SyncOptions, content: String) -> Result<(), String> {
     let (_handle, sftp) = connect(&opts).await?;
-    ensure_dir(&sftp, opts.remote_dir.trim_end_matches('/')).await;
+    ensure_dir(&sftp, opts.remote_dir.trim_end_matches('/')).await?;
     let path = manifest_path(&opts);
     let mut file = sftp
         .create(&path)
@@ -144,9 +191,9 @@ pub async fn sync_write_manifest(opts: SyncOptions, content: String) -> Result<(
 #[specta::specta]
 pub async fn sync_list_books(opts: SyncOptions) -> Result<Vec<String>, String> {
     let (_handle, sftp) = connect(&opts).await?;
-    ensure_dir(&sftp, opts.remote_dir.trim_end_matches('/')).await;
+    ensure_dir(&sftp, opts.remote_dir.trim_end_matches('/')).await?;
     let dir = books_dir(&opts);
-    ensure_dir(&sftp, &dir).await;
+    ensure_dir(&sftp, &dir).await?;
     let entries = sftp
         .read_dir(&dir)
         .await
@@ -171,8 +218,8 @@ pub async fn sync_upload_book(
         .map_err(|e| format!("Could not read local book: {e}"))?;
 
     let (_handle, sftp) = connect(&opts).await?;
-    ensure_dir(&sftp, opts.remote_dir.trim_end_matches('/')).await;
-    ensure_dir(&sftp, &books_dir(&opts)).await;
+    ensure_dir(&sftp, opts.remote_dir.trim_end_matches('/')).await?;
+    ensure_dir(&sftp, &books_dir(&opts)).await?;
 
     let remote = format!("{}/{}", books_dir(&opts), remote_name);
     let mut file = sftp

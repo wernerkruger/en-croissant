@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { filezillaSyncDefaults } from "@/utils/filezillaSyncDefaults";
 
 export const bookSchema = z.object({
     id: z.string(),
@@ -103,9 +104,9 @@ export type SyncConfig = z.infer<typeof syncConfigSchema>;
 
 export const defaultSyncConfig: SyncConfig = {
     enabled: false,
-    host: "access-5020237558.webspace-host.com",
-    port: 22,
-    username: "su235032",
+    host: filezillaSyncDefaults.host,
+    port: filezillaSyncDefaults.port,
+    username: filezillaSyncDefaults.username,
     password: "",
     remoteDir: "chess-data",
     lastSyncAt: 0,

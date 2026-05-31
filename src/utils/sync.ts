@@ -22,9 +22,10 @@ export type SyncResult = {
 };
 
 function optionsFromConfig(config: SyncConfig): SyncOptions {
+    const port = config.port === 21 ? 22 : config.port;
     return {
         host: config.host.trim(),
-        port: config.port,
+        port,
         username: config.username.trim(),
         password: config.password,
         remoteDir: config.remoteDir.trim() || "chess-data",

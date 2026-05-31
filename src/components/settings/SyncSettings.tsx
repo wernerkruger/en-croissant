@@ -15,6 +15,7 @@ import { useAtom } from "jotai";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { syncConfigAtom } from "@/state/atoms";
+import { serverDefaultsFromFileZilla } from "@/utils/filezillaSyncDefaults";
 import { isSyncConfigComplete, runSync, testSync } from "@/utils/sync";
 
 export default function SyncSettings() {
@@ -75,6 +76,18 @@ export default function SyncSettings() {
       ? new Date(config.lastSyncAt).toLocaleString()
       : t("Settings.Sync.Never", "never");
 
+  const canConnect = isSyncConfigComplete(config);
+
+  const applyFileZillaDefaults = () => {
+    const defaults = serverDefaultsFromFileZilla();
+    setConfig((prev) => ({
+      ...prev,
+      host: defaults.host,
+      port: defaults.port,
+      username: defaults.username,
+    }));
+  };
+
   return (
     <Stack>
       <Text size="lg" fw={500}>
@@ -91,6 +104,11 @@ export default function SyncSettings() {
         {t(
           "Settings.Sync.Hint",
           "Books are uploaded to a 'books' folder and pinned games to 'manifest.json' inside your remote folder. On conflict, the most recently changed item wins.",
+        )}
+        {" "}
+        {t(
+          "Settings.Sync.SftpPort",
+          "This server uses SFTP on port 22 (not plain FTP on port 21).",
         )}
       </Alert>
 
@@ -169,12 +187,21 @@ export default function SyncSettings() {
           variant="default"
           leftSection={<IconPlugConnected size="1rem" />}
           loading={testing}
+          disabled={!canConnect}
           onClick={handleTest}
         >
           {t("Settings.Sync.Test", "Test connection")}
         </Button>
-        <Button leftSection={<IconCloudUp size="1rem" />} loading={syncing} onClick={handleSync}>
+        <Button
+          leftSection={<IconCloudUp size="1rem" />}
+          loading={syncing}
+          disabled={!canConnect}
+          onClick={handleSync}
+        >
           {t("Settings.Sync.Now", "Sync now")}
+        </Button>
+        <Button variant="subtle" onClick={applyFileZillaDefaults}>
+          {t("Settings.Sync.ResetServer", "Reset server details")}
         </Button>
       </Group>
 
